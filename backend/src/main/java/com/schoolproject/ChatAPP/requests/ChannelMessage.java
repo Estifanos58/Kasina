@@ -1,32 +1,51 @@
-// New ChannelMessage class
 package com.schoolproject.ChatAPP.requests;
 
-import org.springframework.stereotype.Component;
-
-@Component
 public class ChannelMessage {
     private String sender;
-    private String sendeName;
+    private String senderName;
     private String channelId;
     private String content;
     private String messageType;
     private String fileUrl;
 
-    // Getters and Setters
+    public ChannelMessage() {}
+
+    public ChannelMessage(String sender, String senderName, String channelId, String content, String messageType, String fileUrl) {
+        this.sender = sender;
+        this.senderName = senderName;
+        this.channelId = channelId;
+        this.content = content;
+        this.messageType = messageType;
+        this.fileUrl = fileUrl;
+    }
+
     public String getSender() {
         return sender;
+    }
+
+    public void setSender(String sender) {
+        this.sender = sender;
     }
 
     public void setSenderId(String sender) {
         this.sender = sender;
     }
 
+    public String getSenderName() {
+        return senderName;
+    }
+
+    public void setSenderName(String senderName) {
+        this.senderName = senderName;
+    }
+
+    // Alias for old misspelled getter/setter
     public String getSendeName() {
-        return sendeName;
+        return senderName;
     }
 
     public void setSendeName(String sendeName) {
-        this.sendeName = sendeName;
+        this.senderName = sendeName;
     }
 
     public String getChannelId() {
@@ -59,16 +78,5 @@ public class ChannelMessage {
 
     public void setFileUrl(String fileUrl) {
         this.fileUrl = fileUrl;
-    }
-
-    @Override
-    public String toString() {
-        return "ChannelMessage{" +
-                "senderId='" + sender + '\'' +
-                ", channelId='" + channelId + '\'' +
-                ", content='" + content + '\'' +
-                ", messageType='" + messageType + '\'' +
-                ", fileUrl='" + fileUrl + '\'' +
-                '}';
     }
 }

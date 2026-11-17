@@ -1,6 +1,8 @@
 package com.schoolproject.ChatAPP.repository;
 
 import com.schoolproject.ChatAPP.model.Message;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -18,6 +20,12 @@ public interface MessageRepository extends MongoRepository<Message, String> {
     @Query("{ 'recipient': null, 'channelId': ?0 }")
     List<Message> findMessagesByChannelId(String channelId);
 
+    // Find all messages in a channel ordered by timestamps ascending
+    List<Message> findByChannelIdOrderByTimestampsAsc(String channelId);
+
+    // Find all messages in a channel ordered with pagination
+    Page<Message> findByChannelIdOrderByTimestampsAsc(String channelId, Pageable pageable);
+
     // Find all messages sent by a specific user
     List<Message> findBySender(String senderId);
 
@@ -26,6 +34,9 @@ public interface MessageRepository extends MongoRepository<Message, String> {
 
     // Find messages between two users, ordered by timestamp
     List<Message> findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(String sender1, String recipient1, String sender2, String recipient2);
+
+    // Find messages between two users, with pagination
+    Page<Message> findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(String sender1, String recipient1, String sender2, String recipient2, Pageable pageable);
 
     // Find messages where sender or recipient matches, ordered by timestamps descending
     List<Message> findBySenderOrRecipientOrderByTimestampsDesc(String sender, String recipient);

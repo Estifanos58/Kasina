@@ -1,7 +1,7 @@
 import { Avatar, AvatarImage } from "@/components/ui/avatar"
 import { useAppStore } from "@/store"
 import { getColor } from "@/lib/utils"
-import { HOST, LOGOUT_ROUTE } from "@/utils/constants"
+import { LOGOUT_ROUTE } from "@/utils/constants"
 import {
   Tooltip,
   TooltipContent,
@@ -15,21 +15,20 @@ import { apiClient } from "@/lib/api-client"
 
 
 const ProfileInfo = () => {
-  const { userInfo,setUserInfo } = useAppStore()
-  console.log(userInfo)
+  const { userInfo, setUserInfo } = useAppStore();
   const navigate = useNavigate();
 
-  const logOut = async ()=>{
-      try{
-        const response = await apiClient.post(LOGOUT_ROUTE,{userId: userInfo.id}, {withCredentials: true});
-        if(response.status === 200 ){
-            setUserInfo(null);
-            navigate('auth')
-        }
-      }catch(err){
-        console.log(err)
+  const logOut = async () => {
+    try {
+      const response = await apiClient.post(LOGOUT_ROUTE, { userId: userInfo?.id }, { withCredentials: true });
+      if (response.status === 200) {
+        setUserInfo(null);
+        navigate('/auth');
       }
-  }
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
 
   return (
     <div className="mr-[-100px] h-16 flex items-center justify-between pl-10 pr-10 w-full bg-[#181818] border-[#2f303b] border-2 rounded-2xl ">

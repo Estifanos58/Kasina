@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';  
+import { useEffect, useState } from 'react';  
 import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';  
 import Auth from './pages/auth';  
 import Profile from './pages/profile';  
@@ -27,16 +27,14 @@ const App = () => {
     const getUserData = async () => {  
       try {  
         const response = await apiClient.get(GET_USER_INFO);  
-        console.log(response);  
         if (response.status === 200 && response.data.id) {  
           setUserInfo(response.data);  
-          console.log(response.data);  
         } else {  
-          setUserInfo(null); // Setting to null for clar
+          setUserInfo(null);
         }  
       } catch (err) {  
-        console.error(err);  
-        setUserInfo(null); // Also set to null on error  
+        console.error("Auth check failed:", err);  
+        setUserInfo(null);
       } finally {  
         setLoading(false);  
       }  

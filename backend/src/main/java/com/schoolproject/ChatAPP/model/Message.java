@@ -1,11 +1,18 @@
 package com.schoolproject.ChatAPP.model;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 
 @Document(collection = "messages") // MongoDB Collection name
+@CompoundIndexes({
+        @CompoundIndex(name = "dm_search_idx", def = "{'sender': 1, 'recipient': 1, 'timestamps': 1}"),
+        @CompoundIndex(name = "channel_msg_idx", def = "{'channelId': 1, 'timestamps': 1}")
+})
 public class Message {
 
     @Id
@@ -88,6 +95,10 @@ public class Message {
     // Getters and setters
     public String getId() {
         return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
     }
 
     public String getSender() {

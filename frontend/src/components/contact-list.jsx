@@ -1,5 +1,4 @@
 import { Avatar, AvatarImage } from "./ui/avatar";
-import { HOST } from "@/utils/constants";
 import { useAppStore } from "@/store";
 import { getColor } from "@/lib/utils";
 import { MdGroups } from "react-icons/md";
@@ -9,7 +8,6 @@ function ContactList({ contacts, isChannel = false }) {
     selectedChatData,
     setSelectedChatData,
     setSelectedChatType,
-    selcetedChatType,
     setSelectedChatMessages,
   } = useAppStore();
 
@@ -22,12 +20,9 @@ function ContactList({ contacts, isChannel = false }) {
     }
   };
 
-  // console.log("Contacts" + JSON.stringify(contacts));
-
   return (
     <div className="mt-5">
       {contacts?.map((contact, index) => {
-        console.log("Contact List "+ JSON.stringify(contact?.firstname))
         return (
           <div key={index}
             className={`pl-10 py-2 transition-all duration-300  cursor-pointer ${

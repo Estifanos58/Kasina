@@ -1,13 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import ProfileInfo from './components/profile-info';
-import NewDm from './components/new-dm';
 import { apiClient } from '@/lib/api-client';
 import { GET_DM_CONTACTS_ROUTES, GET_USER_CHANNELS_ROUTE } from '@/utils/constants';
 import { useAppStore } from '@/store';
 import ContactList from '@/components/contact-list';
 import CreateChannel from './components/create-channel';
 import { IoSearchSharp } from "react-icons/io5";
-import { SEARCH_CONTACTS_ROUTES, HOST } from "@/utils/constants";
+import { SEARCH_CONTACTS_ROUTES } from "@/utils/constants";
 import { Avatar } from "@/components/ui/avatar";
 import { AvatarImage } from "@/components/ui/avatar";
 import { getColor } from "@/lib/utils";
@@ -18,7 +17,6 @@ const ContactContainer = () => {
   const [searchedContacts, setSearchedContacts] = useState([]);
   const { setDirectMessagesContacts, directMessagesContacts, channels, setChannels } = useAppStore();
   const { setSelectedChatType, setSelectedChatData } = useAppStore();
-  const [openNewContact, setOpenNewContact] = useState(false);
 
 
   // const { setSelectedChatType, setSelectedChatData } = useAppStore();
@@ -26,19 +24,24 @@ const ContactContainer = () => {
 
   useEffect(()=>{
     const getContacts = async ()=>{
-      const response = await apiClient.get(GET_DM_CONTACTS_ROUTES, {withCredentials: true});
-      // console.log(response.data+"Contact Detail "+response.status);
-      if(response.data){
-        console.log("THIS IS THE CONTACTS THAT IS LOADED FROM DB", JSON.stringify(response.data));
-        setDirectMessagesContacts(response.data)
+      try {
+        const response = await apiClient.get(GET_DM_CONTACTS_ROUTES, {withCredentials: true});
+        if(response.data){
+          setDirectMessagesContacts(response.data);
+        }
+      } catch (err) {
+        console.error("Failed to load contacts:", err);
       }
     }
 
     const getChannels = async ()=>{
-      const response = await apiClient.get(GET_USER_CHANNELS_ROUTE, {withCredentials: true});
-      console.log(response.data+" "+response.status);
-      if(response.data){
-        setChannels(response.data)
+      try {
+        const response = await apiClient.get(GET_USER_CHANNELS_ROUTE, {withCredentials: true});
+        if(response.data){
+          setChannels(response.data);
+        }
+      } catch (err) {
+        console.error("Failed to load channels:", err);
       }
     }
 
@@ -59,11 +62,8 @@ const ContactContainer = () => {
           //  { headers: { Authorization: `Bearer ${token}` }},
           );
   
-          console.log("Response Data:", response.data); // Log raw data
-          console.log("Response Status:", response.status);
-  
           if (response.status === 200) {
-            setSearchedContacts(response.data); // Store contacts
+            setSearchedContacts(response.data);
           } else {
             setSearchedContacts([]);
           }
@@ -76,10 +76,8 @@ const ContactContainer = () => {
     };
 
     const selectNewContact = (contact) => {
-      setOpenNewContact(false);
       setSelectedChatType("contact");
       setSelectedChatData(contact);
-      console.log("SELECTED CHAT CONTACT", contact)
       setSearchedContacts([]);
     };
 

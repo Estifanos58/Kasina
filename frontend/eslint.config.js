@@ -28,8 +28,10 @@ export default [
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
-      'react/props-types': 'off',
+      'react/prop-types': 'off',
       'react/jsx-no-target-blank': 'off',
+      'react/no-unknown-property': ['error', { ignore: ['cmdk-input-wrapper', 'cmdk-empty'] }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_|^React$', caughtErrorsIgnorePattern: '^_' }],
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

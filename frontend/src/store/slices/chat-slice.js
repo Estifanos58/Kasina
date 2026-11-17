@@ -1,6 +1,5 @@
-import { GET_SPECIFIC_USER } from '@/utils/constants';
-import { apiClient } from '@/lib/api-client';
-
+import { GET_SPECIFIC_USER } from '../../utils/constants.js';
+import { apiClient } from '../../lib/api-client.js';
 
 export const createChatSlice = (set, get) => ({
   selectedChatType: undefined,
@@ -13,17 +12,18 @@ export const createChatSlice = (set, get) => ({
   fileDownloadProgress: 0,
   channels: [],
 
-  setChannels: (channels) => set({ channels }),
+  setChannels: (channels) => set({ channels: channels || [] }),
   setIsUploading: (isUploading) => set({ isUploading }),
   setIsDownloading: (isDownloading) => set({ isDownloading }),
   setFileUploadProgress: (fileUploadProgress) => set({ fileUploadProgress }),
   setFileDownloadProgress: (fileDownloadProgress) => set({ fileDownloadProgress }),
   setSelectedChatType: (selectedChatType) => set({ selectedChatType }),
   setSelectedChatData: (selectedChatData) => set({ selectedChatData }),
-  setSelectedChatMessages: (selectedChatMessages) => set({ selectedChatMessages }),
-  setDirectMessagesContacts: (directMessagesContacts) => set({ directMessagesContacts }),
+  setSelectedChatMessages: (selectedChatMessages) => set({ selectedChatMessages: selectedChatMessages || [] }),
+  setDirectMessagesContacts: (directMessagesContacts) => set({ directMessagesContacts: directMessagesContacts || [] }),
 
   addChannel: (channel) => {
+    if (!channel) return;
     const channels = get().channels;
     set({ channels: [channel, ...channels] });
   },
@@ -36,66 +36,72 @@ export const createChatSlice = (set, get) => ({
     }),
 
   addMessage: (message) => {
+    if (!message) return;
     const selectedChatMessages = get().selectedChatMessages;
 
-    // Avoid duplicates by checking the message ID
-    const isDuplicate = selectedChatMessages.some((msg) => msg.id === message.id);
+    // Avoid duplicates by checking the message ID if present
+    const isDuplicate = message.id && selectedChatMessages.some((msg) => msg.id === message.id);
 
     if (!isDuplicate) {
       const updatedMessages = [...selectedChatMessages, message];
 
-      // Sort messages by timestamps
-      updatedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      // Sort messages by timestamps (support both timestamps and timestamp)
+      updatedMessages.sort((a, b) => {
+        const timeA = new Date(a.timestamps || a.timestamp || 0).getTime();
+        const timeB = new Date(b.timestamps || b.timestamp || 0).getTime();
+        return timeA - timeB;
+      });
 
       set({ selectedChatMessages: updatedMessages });
     }
   },
 
   addChannelInChannelList: (message) => {
-    let channels = [...get().channels]; // Clone array
+    if (!message || !message.channelId) return;
+    const channels = [...get().channels];
     const index = channels.findIndex((channel) => channel.id === message.channelId);
 
     if (index !== -1) {
-      const [channel] = channels.splice(index, 1); // Remove and get the channel
-      channels.unshift(channel); // Move to the top
+      const [channel] = channels.splice(index, 1);
+      channels.unshift(channel);
+      set({ channels });
     }
-
-    set({ channels });
   },
 
   addContactsInDmContacts: async (message) => {
-    const userId = get().userInfo.id; // Current user's ID from userInfo
-    const fromId = message.sender === userId ? message.recipient : message.sender; // ID of the other user
-    
-    let dmContacts = [...get().directMessagesContacts]; // Clone array
-  
-    // Check if the contact is already in the list
-    const index = dmContacts.findIndex((contact) => contact.id === fromId);
-  
+    if (!message) return;
+    const currentUser = get().userInfo;
+    if (!currentUser || !currentUser.id) return;
+
+    const userId = currentUser.id;
+    const fromId = message.sender === userId ? message.recipient : message.sender;
+    if (!fromId || fromId === userId) return;
+
+    const dmContacts = [...get().directMessagesContacts];
+    const index = dmContacts.findIndex((contact) => contact && contact.id === fromId);
+
     if (index !== -1) {
-      // Move existing contact to the top
       const [contact] = dmContacts.splice(index, 1);
+      contact.lastMessageTime = message.timestamps || message.timestamp || new Date().toISOString();
       dmContacts.unshift(contact);
+      set({ directMessagesContacts: dmContacts });
     } else {
       try {
-        // Fetch user data from the backend
         const response = await apiClient.post(
           GET_SPECIFIC_USER,
-                    { userId: fromId }, // Send searchTerm in the request body
-                    { withCredentials: true }
-                  );
-  
-        const userData = await response.data;
-  
-        // Add the new contact to the top of the list
-        dmContacts.unshift(userData);
+          { userId: fromId },
+          { withCredentials: true }
+        );
+
+        if (response.data) {
+          const userData = response.data;
+          userData.lastMessageTime = message.timestamps || message.timestamp || new Date().toISOString();
+          dmContacts.unshift(userData);
+          set({ directMessagesContacts: dmContacts });
+        }
       } catch (error) {
         console.error("Error fetching user data:", error);
       }
     }
-  
-    // Update state
-    set({ directMessagesContacts: dmContacts });
   },
-}
-);  
+});

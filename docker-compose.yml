@@ -1,0 +1,67 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: kasina-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: chat_app
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kasina-backend
+    restart: unless-stopped
+    environment:
+      MONGODB_CONNECTION_STRING: mongodb://mongodb:27017/chat_app
+      MONGODB_NAME: chat_app
+      JWT_SECRET: ${JWT_SECRET:-kasina-jwt-secret-key-change-in-production-min-32-chars}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173,http://localhost:80,http://localhost}
+      PORT: 8080
+      FILE_UPLOAD_DIR: /app/uploads/files
+      COOKIE_SECURE: "false"
+      COOKIE_SAME_SITE: "Lax"
+    volumes:
+      - upload_data:/app/uploads/files
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/auth/login"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SERVER_URL: http://localhost:8080
+        VITE_SOCKET_URL: http://localhost:8080/ws
+    container_name: kasina-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+    driver: local
+  upload_data:
+    driver: local

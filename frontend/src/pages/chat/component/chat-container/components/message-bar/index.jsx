@@ -1,6 +1,6 @@
 import { useAppStore } from "@/store";
 import EmojiPicker from "emoji-picker-react";
-import React, { useEffect,useState,useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { GrAttachment } from "react-icons/gr";
 import { IoSend } from "react-icons/io5";
 import { RiEmojiStickerFill } from "react-icons/ri";
@@ -118,7 +118,11 @@ const MessageBar = () => {
       }
     } catch (error) {
       setIsUploading(false);
-      console.log(error);
+      console.error("File upload error:", error);
+    } finally {
+      if (event && event.target) {
+        event.target.value = "";
+      }
     }
   };
   

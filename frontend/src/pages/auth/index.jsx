@@ -1,5 +1,4 @@
-import React, { useState } from 'react'
-import Background from '../../assets/login2.png';
+import { useState } from 'react'
 import Victory from '@/assets/victory.svg'
 import { Tabs, TabsList, TabsContent, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input'
@@ -49,59 +48,55 @@ const Auth = () => {
     const handleLogin = async ()=>{
         if(validateLogin()){
             try {
-                setLoading(true)
-                const response = await apiClient.post(LOGIN_ROUTE,{email, password,})
-                console.log("Login" + JSON.stringify(response))
-                if(response.data.id){
-                    setUserInfo(response.data)
-                    setLoading(false)
+                setLoading(true);
+                const response = await apiClient.post(LOGIN_ROUTE, { email, password });
+                if(response.data?.id){
+                    setUserInfo(response.data);
+                    setLoading(false);
                     if(response.data.profileSetup) {
-                        toast.success("Successfull Login!! ");
-                        navigate('/chat');}
-                    else navigate('/profile');
-                }else{
-                    setLoading(false)
-                    toast.error("Invalid Credentials")
+                        toast.success("Successful Login!");
+                        navigate('/chat');
+                    } else {
+                        navigate('/profile');
+                    }
+                } else {
+                    setLoading(false);
+                    toast.error("Invalid Credentials");
                 }
             } catch (error) {
-                setLoading(false)
-                console.log("Error while Login" + error);
-                toast.error("No internet connection")
+                setLoading(false);
+                const msg = error?.response?.data?.message || "Invalid Credentials or server error";
+                toast.error(msg);
             }
-            
         }
         else{
-            setLoading(false)
-            toast.error("Fill all fields")
+            setLoading(false);
+            toast.error("Fill all fields");
         }
     }
 
     const handleSignup = async()=>{
         if(validateSignUp()){
             try {
-                console.log(email, password)
-                setLoading(true)
-                const response = await apiClient.post(SIGNUP_ROUTES,{email,password})
-                console.log("Sign up"+ JSON.stringify(response))
-                if(response.data){
-                    setUserInfo(response.data)
-                    setLoading(false)
-                    toast.success("Successfull SignUp!! ");
-                    navigate('/profile')
-                }else{
-                    setLoading(false)
-                    toast.error("Invalid Credentials")
+                setLoading(true);
+                const response = await apiClient.post(SIGNUP_ROUTES, { email, password });
+                if(response.data?.id){
+                    setUserInfo(response.data);
+                    setLoading(false);
+                    toast.success("Successful SignUp!");
+                    navigate('/profile');
+                } else {
+                    setLoading(false);
+                    toast.error("Signup failed");
                 }
             } catch (error) {
-                console.log("Error while Signup" + error);
-                setLoading(false)
-                if(error != "Cannot read properties of undefined (reading 'profileSetup')")
-                    toast.error("No internet connection")
+                setLoading(false);
+                const msg = error?.response?.data?.message || "Signup failed. Please try again.";
+                toast.error(msg);
             }
-            
-        }else{
-            setLoading(false)
-            toast.error("Fill all fields")
+        } else {
+            setLoading(false);
+            toast.error("Fill all fields");
         }
     }
 
@@ -117,7 +112,7 @@ const Auth = () => {
                         <img src={Victory} alt="Victory Emoji" className="h-[100px]" />
                     </div>
                     <p className="font-medium text-center text-[#B0B0B0]">
-                        Let's Help you Connect!
+                        Let&apos;s Help you Connect!
                     </p>
                 </div>
                 <div className="flex items-center justify-center w-full">

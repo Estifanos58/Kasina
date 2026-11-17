@@ -1,169 +1,116 @@
 package com.schoolproject.ChatAPP.controllers;
 
+import com.schoolproject.ChatAPP.config.UserPrincipal;
 import com.schoolproject.ChatAPP.model.User;
 import com.schoolproject.ChatAPP.repository.UserRepository;
 import com.schoolproject.ChatAPP.requests.UpdateProfileRequest;
+import com.schoolproject.ChatAPP.responses.ErrorResponse;
 import com.schoolproject.ChatAPP.responses.UpdateProfileResponse;
 import com.schoolproject.ChatAPP.responses.UserInfoResponse;
-import com.schoolproject.ChatAPP.util.JwtUtil;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import javax.crypto.SecretKey;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/user")
-//@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
-
+@Validated
 public class UserController {
+
+    private static final Logger logger = LoggerFactory.getLogger(UserController.class);
 
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
     @GetMapping("/info")
-    public ResponseEntity<?> getUserInfo(@CookieValue(name = "jwt", required = false) String jwtToken) {
-        try {
-            if (jwtToken == null || jwtToken.isEmpty()) {
-                return ResponseEntity.status(401).body("Missing or invalid JWT token");
-            }
-
-            // Decode the JWT token using the same SECRET_KEY
-            Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(JwtUtil.getSecretKey()) // Use the SECRET_KEY from JwtUtil
-                    .build()
-                    .parseClaimsJws(jwtToken)
-                    .getBody();
-
-            // Extract the userId from the claims
-            String userId = claims.get("userId", String.class);
-
-            if (userId == null || userId.isEmpty()) {
-                return ResponseEntity.status(400).body("Invalid user ID in token");
-            }
-
-            // Fetch user details from the database
-            Optional<User> userOptional = userRepository.findById(userId);
-
-            if (userOptional.isEmpty()) {
-                return ResponseEntity.status(404).body("User with the given ID not found");
-            }
-
-            User user = userOptional.get();
-            return ResponseEntity.ok(new UserInfoResponse(
-                    user.getId(),
-                    user.getEmail(),
-                    user.isProfileSetup(),
-                    user.getFirstname(),
-                    user.getLastname(),
-                    user.getImage(),
-                    user.getColor()
-            ));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Internal Server Error");
+    public ResponseEntity<?> getUserInfo(@AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
+
+        Optional<User> userOptional = userRepository.findById(principal.getUserId());
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "User not found"));
+        }
+
+        User user = userOptional.get();
+        return ResponseEntity.ok(new UserInfoResponse(
+                user.getId(),
+                user.getEmail(),
+                user.isProfileSetup(),
+                user.getFirstname(),
+                user.getLastname(),
+                user.getImage(),
+                user.getColor()
+        ));
     }
 
     @PostMapping("/update-profile")
     public ResponseEntity<?> updateProfile(
-            @CookieValue(name = "jwt", required = false) String jwtToken,
+            @AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody UpdateProfileRequest profileRequest) {
-        try {
-            if (jwtToken == null || jwtToken.isEmpty()) {
-                return ResponseEntity.status(401).body("Missing or invalid JWT token");
-            }
-
-            // Decode the JWT token
-            SecretKey secretKey = JwtUtil.getSecretKey();
-            Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(secretKey)
-                    .build()
-                    .parseClaimsJws(jwtToken)
-                    .getBody();
-
-            String userId = claims.get("userId", String.class);
-
-            if (userId == null || userId.isEmpty()) {
-                return ResponseEntity.status(400).body("Invalid user ID in token");
-            }
-
-            // Update user details
-            Optional<User> userOptional = userRepository.findById(userId);
-
-            if (userOptional.isEmpty()) {
-                return ResponseEntity.status(404).body("User with the given ID not found");
-            }
-
-
-
-            User user = userOptional.get();
-            user.setFirstname(profileRequest.getFirstname());
-            user.setLastname(profileRequest.getLastname());
-            user.setColor(profileRequest.getColor());
-            user.setProfileSetup(true);
-
-            if(!profileRequest.getImage().isEmpty()){
-                user.setImage(profileRequest.getImage());
-            }
-
-            userRepository.save(user);
-
-            return ResponseEntity.ok(new UpdateProfileResponse(
-                    user.getId(),
-                    user.getEmail(),
-                    user.isProfileSetup(),
-                    user.getFirstname(),
-                    user.getLastname(),
-                    user.getImage(),
-                    user.getColor()
-            ));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Internal Server Error");
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
+
+        Optional<User> userOptional = userRepository.findById(principal.getUserId());
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "User not found"));
+        }
+
+        User user = userOptional.get();
+        user.setFirstname(profileRequest.getFirstname());
+        user.setLastname(profileRequest.getLastname());
+        user.setColor(profileRequest.getColor());
+        user.setProfileSetup(true);
+
+        if (profileRequest.getImage() != null && !profileRequest.getImage().isEmpty()) {
+            user.setImage(profileRequest.getImage());
+        }
+
+        User updatedUser = userRepository.save(user);
+        logger.info("Profile updated for user: {}", updatedUser.getId());
+
+        return ResponseEntity.ok(new UpdateProfileResponse(
+                updatedUser.getId(),
+                updatedUser.getEmail(),
+                updatedUser.isProfileSetup(),
+                updatedUser.getFirstname(),
+                updatedUser.getLastname(),
+                updatedUser.getImage(),
+                updatedUser.getColor()
+        ));
     }
 
     @DeleteMapping("/remove-profileImage")
-    public  ResponseEntity<?> removeProfile(@CookieValue(name = "jwt", required = false) String jwtToken){
-        try{
-            if (jwtToken == null || jwtToken.isEmpty()) {
-                return ResponseEntity.status(401).body("Missing or invalid JWT token");
-            }
-
-            // Decode the JWT token
-            SecretKey secretKey = JwtUtil.getSecretKey();
-            Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(secretKey)
-                    .build()
-                    .parseClaimsJws(jwtToken)
-                    .getBody();
-
-            String userId = claims.get("userId", String.class);
-
-            if (userId == null || userId.isEmpty()) {
-                return ResponseEntity.status(400).body("Invalid user ID in token");
-            }
-
-            // Update user details
-            Optional<User> userOptional = userRepository.findById(userId);
-
-            User user = userOptional.get();
-
-            user.setImage(null);
-            userRepository.save(user);
-
-            return ResponseEntity.ok("Image deleted");
-        }catch(Exception e){
-            return ResponseEntity.status(500).body("Internal Server Error");
+    public ResponseEntity<?> removeProfile(@AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
-    }
 
+        Optional<User> userOptional = userRepository.findById(principal.getUserId());
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "User not found"));
+        }
+
+        User user = userOptional.get();
+        user.setImage(null);
+        userRepository.save(user);
+        logger.info("Profile image removed for user: {}", user.getId());
+
+        return ResponseEntity.ok("Image deleted");
+    }
 }

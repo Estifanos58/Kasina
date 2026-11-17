@@ -1,50 +1,56 @@
 package com.schoolproject.ChatAPP.controllers;
 
-
+import com.schoolproject.ChatAPP.config.UserPrincipal;
 import com.schoolproject.ChatAPP.model.Message;
 import com.schoolproject.ChatAPP.repository.MessageRepository;
-import com.schoolproject.ChatAPP.util.JwtUtil;
+import com.schoolproject.ChatAPP.responses.ErrorResponse;
+import com.schoolproject.ChatAPP.responses.MessageResponseDTO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/messages")
-//@CrossOrigin(origins = "http://localhost:5173") // Adjust frontend URL
+@Validated
 public class MessageController {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageController.class);
 
     @Autowired
     private MessageRepository messageRepository;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
     @PostMapping("/get-messages")
-    public ResponseEntity<?> getMessages(@RequestBody MessageRequest request, HttpServletRequest httpRequest) {
-        try {
-            // Extract user ID from JWT token
-            String token = jwtUtil.getJwtFromRequest(httpRequest);
-            String user1 = jwtUtil.extractUserId(token);
-            String user2 = request.getId();
-
-            // Validate user IDs
-            if (user1 == null || user2 == null || user1.isEmpty() || user2.isEmpty()) {
-                return ResponseEntity.badRequest().body("Both user IDs are required.");
-            }
-
-            // Fetch messages between the two users, sorted by timestamp
-            List<Message> messages = messageRepository.findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(
-                    user1, user2, user1, user2
-            );
-
-            return ResponseEntity.ok(messages);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body("Internal Server Error");
+    public ResponseEntity<?> getMessages(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody MessageRequest request) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
+
+        String user1 = principal.getUserId();
+        String user2 = request.getId();
+
+        if (user2 == null || user2.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Recipient user ID is required."));
+        }
+
+        List<MessageResponseDTO> messages = messageRepository
+                .findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(user1, user2, user1, user2)
+                .stream()
+                .map(MessageResponseDTO::fromEntity)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(messages);
     }
 
     // Request DTO
@@ -60,4 +66,3 @@ public class MessageController {
         }
     }
 }
-

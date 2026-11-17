@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import moment from "moment";
 import { useAppStore } from "@/store";
 import { apiClient } from "@/lib/api-client";
@@ -69,7 +69,16 @@ const MessageContainer = () => {
     }
   }, [selectedChatMessages]);
 
+  const getFileUrl = (url) => {
+    if (!url) return "";
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    const cleanHost = HOST.endsWith("/") ? HOST.slice(0, -1) : HOST;
+    const cleanPath = url.startsWith("/") ? url : `/${url}`;
+    return `${cleanHost}${cleanPath}`;
+  };
+
   const checkImage = (filePath) => {
+    if (!filePath) return false;
     const imageRegex =
       /\.(jpg|jpeg|png|gif|bmp|tiff|tif|webp|svg|ico|heic|heif)$/i;
     return imageRegex.test(filePath);
@@ -101,12 +110,15 @@ const MessageContainer = () => {
     try {
       setIsDownloading(true);
       setFileDownloadProgress(0);
-      const response = await apiClient.get(`${HOST}${file}`, {
+      const url = getFileUrl(file);
+      const response = await apiClient.get(url, {
         responseType: "blob",
         onDownloadProgress: (progressEvent) => {
           const { loaded, total } = progressEvent;
-          const percent = Math.floor((loaded * 100) / total);
-          setFileDownloadProgress(percent);
+          if (total) {
+            const percent = Math.floor((loaded * 100) / total);
+            setFileDownloadProgress(percent);
+          }
         },
       });
       const urlBlob = window.URL.createObjectURL(new Blob([response.data]));
@@ -117,7 +129,7 @@ const MessageContainer = () => {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(urlBlob);
-      setIsDowloading(false);
+      setIsDownloading(false);
       setFileDownloadProgress(0);
     } catch (error) {
       setIsDownloading(false);
@@ -158,7 +170,7 @@ const MessageContainer = () => {
                 setImageUrl(message.fileUrl);
               }}
             >
-              <img src={`${HOST}${message.fileUrl}`} height={300} width={300} />
+              <img src={getFileUrl(message.fileUrl)} height={300} width={300} alt="Attachment" />
             </div>
           ) : (
             <div className="flex items-center justify-center gap-4">
@@ -216,7 +228,7 @@ const MessageContainer = () => {
                     setImageUrl(message.fileUrl);
                   }}
                 >
-                  <img src={`${HOST}${message.fileUrl}`} height={300} width={300} />
+                  <img src={getFileUrl(message.fileUrl)} height={300} width={300} alt="Attachment" />
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-4">
@@ -275,7 +287,7 @@ const MessageContainer = () => {
       {showImage && (
         <div className="fixed z-[1000] top-0 left-0 h-[100vh] w-[100vw] flex items-center justify-center backdrop-blur-lg flex-col">
           <img
-            src={`${HOST}${imageUrl}`}
+            src={getFileUrl(imageUrl)}
             alt="image"
             className="h-[70vh] w-[70vw] bg-cover"
           />

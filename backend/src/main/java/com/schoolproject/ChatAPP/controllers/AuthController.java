@@ -1,27 +1,35 @@
 package com.schoolproject.ChatAPP.controllers;
 
+import com.schoolproject.ChatAPP.model.User;
 import com.schoolproject.ChatAPP.repository.UserRepository;
-import com.schoolproject.ChatAPP.requests.LogOutRequest;
 import com.schoolproject.ChatAPP.requests.LoginRequest;
+import com.schoolproject.ChatAPP.requests.SignUpRequest;
+import com.schoolproject.ChatAPP.responses.ErrorResponse;
 import com.schoolproject.ChatAPP.responses.LoginResponse;
 import com.schoolproject.ChatAPP.responses.SignUpResponse;
 import com.schoolproject.ChatAPP.util.JwtUtil;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import com.schoolproject.ChatAPP.model.User;
 
 import java.util.Optional;
-import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/auth")
 @Validated
 public class AuthController {
+
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
 
     @Autowired
     private UserRepository userRepository;
@@ -29,119 +37,87 @@ public class AuthController {
     @Autowired
     private JwtUtil jwtUtil;
 
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Value("${jwt.cookie-secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${jwt.cookie-same-site:Lax}")
+    private String cookieSameSite;
 
     @PostMapping("/signup")
-    public ResponseEntity<?> signup(@Valid @RequestBody User userRequest, HttpServletResponse response) {
-        try {
-            if (userRequest.getEmail() == null || userRequest.getPassword() == null) {
-                return ResponseEntity.badRequest().body("Email and Password are required.");
-            }
+    public ResponseEntity<?> signup(@Valid @RequestBody SignUpRequest signUpRequest, HttpServletResponse response) {
+        String email = signUpRequest.getEmail().trim().toLowerCase();
 
-            Optional<User> existingUser = userRepository.findByEmail(userRequest.getEmail());
-            if (existingUser.isPresent()) {
-                return ResponseEntity.badRequest().body("Email already exists.");
-            }
-
-            String hashedPassword = passwordEncoder.encode(userRequest.getPassword());
-            User newUser = new User();
-            newUser.setEmail(userRequest.getEmail());
-            newUser.setPassword(hashedPassword);
-
-            User savedUser = userRepository.save(newUser);
-
-            String jwtToken = jwtUtil.generateToken(savedUser.getEmail(), savedUser.getId());
-
-            // Set JWT Cookie with SameSite=None
-            Cookie jwtCookie = new Cookie("jwt", jwtToken);
-            jwtCookie.setHttpOnly(true);
-            jwtCookie.setSecure(true);
-            jwtCookie.setPath("/");
-            jwtCookie.setMaxAge(86400); // 1 day
-            jwtCookie.setAttribute("SameSite", "None"); // Required for cross-origin cookies
-
-            response.addCookie(jwtCookie);
-
-            return ResponseEntity.status(201).body(
-                    new SignUpResponse(savedUser.getId(), savedUser.getEmail(), savedUser.isProfileSetup())
-            );
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body("Internal Server Error");
+        Optional<User> existingUser = userRepository.findByEmail(email);
+        if (existingUser.isPresent()) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Email already exists."));
         }
+
+        String hashedPassword = passwordEncoder.encode(signUpRequest.getPassword());
+        User newUser = new User();
+        newUser.setEmail(email);
+        newUser.setPassword(hashedPassword);
+        newUser.setProfileSetup(false);
+
+        User savedUser = userRepository.save(newUser);
+        logger.info("New user registered successfully with ID: {}", savedUser.getId());
+
+        String jwtToken = jwtUtil.generateToken(savedUser.getEmail(), savedUser.getId());
+        addJwtCookie(response, jwtToken, 86400);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                new SignUpResponse(savedUser.getId(), savedUser.getEmail(), savedUser.isProfileSetup())
+        );
     }
-//this is for tthe login route
+
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest, HttpServletResponse response) {
-        try {
-            String email = loginRequest.getEmail();
-            String password = loginRequest.getPassword();
-// looking for email
-            if (email == null || password == null) {
-                return ResponseEntity.badRequest().body("Email and Password are required.");
-            }
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest loginRequest, HttpServletResponse response) {
+        String email = loginRequest.getEmail().trim().toLowerCase();
 
-            Optional<User> userOptional = userRepository.findByEmail(email);
-            if (userOptional.isEmpty()) {
-                return ResponseEntity.status(404).body("User not found.");
-            }
-
-            User user = userOptional.get();
-
-            if (!passwordEncoder.matches(password, user.getPassword())) {
-                return ResponseEntity.badRequest().body("Password is incorrect.");
-            }
-
-            String jwtToken = jwtUtil.generateToken(email, user.getId());
-
-
-            Cookie jwtCookie = new Cookie("jwt", jwtToken);
-            jwtCookie.setHttpOnly(true);
-            jwtCookie.setSecure(true);
-            jwtCookie.setPath("/");
-            jwtCookie.setMaxAge(86400);
-            jwtCookie.setAttribute("SameSite", "None");
-
-            response.addCookie(jwtCookie);
-
-            return ResponseEntity.ok(new LoginResponse(
-                    user.getId(),
-                    user.getEmail(),
-                    user.isProfileSetup(),
-                    user.getFirstname(),
-                    user.getLastname(),
-                    user.getImage(),
-                    user.getColor()
-            ));
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body("Internal Server Error");
+        Optional<User> userOptional = userRepository.findByEmail(email);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "User not found."));
         }
+
+        User user = userOptional.get();
+
+        if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Password is incorrect."));
+        }
+
+        String jwtToken = jwtUtil.generateToken(email, user.getId());
+        addJwtCookie(response, jwtToken, 86400);
+
+        logger.info("User {} logged in successfully", user.getId());
+
+        return ResponseEntity.ok(new LoginResponse(
+                user.getId(),
+                user.getEmail(),
+                user.isProfileSetup(),
+                user.getFirstname(),
+                user.getLastname(),
+                user.getImage(),
+                user.getColor()
+        ));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logOut(@RequestBody LogOutRequest logoutRequest, HttpServletResponse response) {
-        try {
-            Optional<User> userOptional = userRepository.findById(logoutRequest.getUserId());
-            if (userOptional.isEmpty()) {
-                return ResponseEntity.status(404).body("User not found");
-            }
+    public ResponseEntity<?> logOut(HttpServletResponse response) {
+        // Clear the JWT cookie
+        addJwtCookie(response, "", 0);
+        return ResponseEntity.ok("Logout Successful.");
+    }
 
-
-            Cookie jwtCookie = new Cookie("jwt", "");
-            jwtCookie.setMaxAge(0); // Expires immediately
-            jwtCookie.setSecure(true);
-            jwtCookie.setHttpOnly(true);
-            jwtCookie.setPath("/");
-            jwtCookie.setAttribute("SameSite", "None");
-
-            response.addCookie(jwtCookie);
-
-            return ResponseEntity.ok("Logout Successful.");
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body("Internal Server Error");
-        }
+    private void addJwtCookie(HttpServletResponse response, String token, int maxAgeSeconds) {
+        ResponseCookie cookie = ResponseCookie.from("jwt", token)
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .path("/")
+                .maxAge(maxAgeSeconds)
+                .sameSite(cookieSameSite)
+                .build();
+        response.addHeader("Set-Cookie", cookie.toString());
     }
 }

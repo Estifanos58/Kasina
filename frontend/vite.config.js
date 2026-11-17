@@ -1,4 +1,4 @@
-import path from "path";
+import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { NodeGlobalsPolyfillPlugin } from "@esbuild-plugins/node-globals-polyfill";
@@ -9,7 +9,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
       global: "globalThis", // Alias global to globalThis
     },
   },
@@ -26,4 +26,3 @@ export default defineConfig({
     },
   },
 });
-

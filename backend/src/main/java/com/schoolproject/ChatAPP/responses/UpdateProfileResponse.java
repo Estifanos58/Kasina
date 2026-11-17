@@ -41,7 +41,15 @@ public class UpdateProfileResponse {
         return firstname;
     }
 
+    public String getFirstName() {
+        return firstname;
+    }
+
     public String getLastname() {
+        return lastname;
+    }
+
+    public String getLastName() {
         return lastname;
     }
 

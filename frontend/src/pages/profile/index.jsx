@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAppStore } from "@/store";
 import { IoArrowBack } from "react-icons/io5";
 import { Avatar, AvatarImage } from "@/components/ui/avatar";
@@ -9,7 +9,7 @@ import { colors } from "../../lib/utils";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
-import { ADD_PROFILE_IMAGE_ROUTE, REMOVE_PROFILE_IMAGE_ROUTE, UPDATE_PROFILE_ROUTE , HOST} from "@/utils/constants";
+import { REMOVE_PROFILE_IMAGE_ROUTE, UPDATE_PROFILE_ROUTE } from "@/utils/constants";
 import { useNavigate } from "react-router-dom";
 import imageCompression from 'browser-image-compression';  
 
@@ -34,8 +34,6 @@ const Profile = () => {
       setImage(userInfo.image)
     }
   },[userInfo])
-  console.log("USERINFO", Image)
-
 
   const validateProfile = () => {
     if (!firstName) {
@@ -60,7 +58,6 @@ const Profile = () => {
           { withCredentials: true }
         );
         if(response.status === 200 && response.data){
-          console.log("Success")
           setUserInfo({...response.data})
           setLoading(false);
           toast.success("Profile updated successfully");
@@ -68,7 +65,7 @@ const Profile = () => {
         }
       } catch (err) {
         setLoading(false)
-        console.log(err.message);
+        console.error("Profile update error:", err.message);
       }
     }
   };

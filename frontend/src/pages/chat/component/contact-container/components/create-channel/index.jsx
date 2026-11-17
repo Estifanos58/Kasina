@@ -4,7 +4,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { FaPlus } from "react-icons/fa";
 import { useEffect, useState } from "react";
 import {
   Dialog,
@@ -23,7 +22,7 @@ import MultipleSelector from "@/components/ui/multipleselect";
 import { MdGroupAdd } from "react-icons/md";
 
 const CreateChannel = () => {
-  const { setSelectedChatType, setSelectedChatData, addChannel } = useAppStore();
+  const { addChannel } = useAppStore();
   const [newChannelModel, setNewChannelModel] = useState(false);
   const [allContacts, setAllContacts] = useState([]);
   const [selectedContacts, setSelectedContacts] = useState([]);
@@ -70,8 +69,6 @@ const CreateChannel = () => {
             withCredentials: true,
           }
         );
-        console.log(response.status, response.data);
-
         if (response.status === 201) {
           setChannelName("");
           setSelectedContacts([]);

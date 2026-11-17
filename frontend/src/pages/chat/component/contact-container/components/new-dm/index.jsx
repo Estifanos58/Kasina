@@ -4,7 +4,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { FaPlus } from "react-icons/fa";
 import { useState } from "react";
 import {
   Dialog,
@@ -15,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
-import { SEARCH_CONTACTS_ROUTES, HOST } from "@/utils/constants";
+import { SEARCH_CONTACTS_ROUTES } from "@/utils/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar } from "@/components/ui/avatar";
 import { AvatarImage } from "@/components/ui/avatar";
@@ -38,9 +37,6 @@ const NewDm = () => {
           { searchTerm }, // Send searchTerm in the request body
           { withCredentials: true }
         );
-
-        console.log("Response Data:", response.data); // Log raw data
-        console.log("Response Status:", response.status);
 
         if (response.status === 200) {
           setSearchedContacts(response.data); // Store contacts
@@ -105,7 +101,7 @@ const NewDm = () => {
                     <Avatar className="h-12 w-12  rounded-full overflow-hidden">
                       {contact.image ? (
                         <AvatarImage
-                          src={`${HOST}${contact.image}`}
+                          src={contact.image}
                           alt="profile"
                           className="object-cover w-full h-full bg-black"
                         />

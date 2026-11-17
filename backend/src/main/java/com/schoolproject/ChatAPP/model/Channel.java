@@ -23,8 +23,8 @@ public class Channel {
     @DBRef
     private User admin; // Admin of the channel (optional)
 
-    @DBRef
-    private List<Message> messages = new ArrayList<>(); // Initialize messages
+    @org.springframework.data.annotation.Transient
+    private List<Message> messages = new ArrayList<>(); // Kept in memory only, messages are queried via MessageRepository
 
     private Date createdAt; // Creation date
 

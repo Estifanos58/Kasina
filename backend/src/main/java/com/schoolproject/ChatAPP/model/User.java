@@ -28,6 +28,7 @@ public class User {
     private String email;
 
     @NotBlank(message = "Password is required")
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
     private String firstname;
@@ -94,15 +95,18 @@ public class User {
         this.firstname = firstname;
     }
 
+    public void setId(String id) {
+        this.id = id;
+    }
+
     @Override
     public String toString() {
         return "User{" +
-                "email='" + email + '\'' +
-                ", password='" + password + '\'' +
+                "id='" + id + '\'' +
+                ", email='" + email + '\'' +
                 ", firstname='" + firstname + '\'' +
                 ", lastname='" + lastname + '\'' +
                 ", color=" + color +
-                ", image='" + image + '\'' +
                 ", profileSetup=" + profileSetup +
                 '}';
     }

@@ -1,44 +1,36 @@
 package com.schoolproject.ChatAPP.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
-import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionConnectEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
-import org.springframework.stereotype.Component;
 
-import java.util.Objects;
+import java.security.Principal;
 
 @Component
 public class WebSocketEventListener {
 
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketEventListener.class);
+
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectEvent event) {
-
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
-        String userId = headerAccessor.getFirstNativeHeader("username");
-        if (userId == null || userId.isEmpty()) {
-            System.out.println("Missing username header!");
-            return;
-        }
+        Principal user = headerAccessor.getUser();
+        String userId = user != null ? user.getName() : "Anonymous";
+        String sessionId = headerAccessor.getSessionId();
 
-//        String userId = headerAccessor.getFirstNativeHeader("username"); // Get username from headers
-//
-//        if (userId == null || userId.isEmpty()) {
-//            userId = "Anonymous"; // Fallback to anonymous
-//        }
-
-        String sessionId = Objects.requireNonNull(headerAccessor.getSessionId());
-        WebSocketSessionManager.addUserSession(userId, sessionId);
-        System.out.println("User Connected: " + userId);
-        // Assuming user ID is in the session
+        logger.info("WebSocket connected - User: {}, Session: {}", userId, sessionId);
     }
 
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         String sessionId = event.getSessionId();
-        WebSocketSessionManager.removeUserSession(sessionId);
-        System.out.println("User Disconnected: " + sessionId);
+        Principal user = event.getUser();
+        String userId = user != null ? user.getName() : "Unknown";
+
+        logger.info("WebSocket disconnected - User: {}, Session: {}", userId, sessionId);
     }
 }
-

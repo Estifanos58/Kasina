@@ -1,8 +1,24 @@
-# React + Vite
+# Kasina Frontend Client
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This directory contains the React 18 + Vite frontend client for the Kasina real-time messaging application.
 
-Currently, two official plugins are available:
+For complete project documentation including architecture, Docker instructions, environment variables, and backend configuration, refer to the root [README.md](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Run ESLint
+npm run lint
+
+# Run unit tests
+npm test
+
+# Build for production
+npm run build
+```

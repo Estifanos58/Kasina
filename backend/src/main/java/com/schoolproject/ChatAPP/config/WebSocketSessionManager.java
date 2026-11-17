@@ -1,65 +1,50 @@
 package com.schoolproject.ChatAPP.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class WebSocketSessionManager {
 
-    // Map to track user IDs and their session IDs
-    private static final ConcurrentHashMap<String, String> userSessionMap = new ConcurrentHashMap<>();
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketSessionManager.class);
 
-    /**
-     * Adds a session for a user.
-     * @param userId    The ID of the user.
-     * @param sessionId The WebSocket session ID.
-     */
-    public static void addUserSession(String userId, String sessionId) {
-        if (userId == null || sessionId == null) {
-            throw new IllegalArgumentException("User ID and Session ID cannot be null");
-        }
-        userSessionMap.put(userId, sessionId);
-        System.out.println("Session Added: " + userId + " -> " + sessionId);
+    // Multi-session map: userId -> Set of sessionIds
+    private final ConcurrentHashMap<String, Set<String>> userSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> sessionToUser = new ConcurrentHashMap<>();
+
+    public void addSession(String userId, String sessionId) {
+        if (userId == null || sessionId == null) return;
+        userSessions.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
+        sessionToUser.put(sessionId, userId);
+        logger.debug("Session added: user={} session={}", userId, sessionId);
     }
 
-    /**
-     * Removes a session based on the session ID.
-     * @param sessionId The WebSocket session ID to be removed.
-     */
-    public static void removeUserSession(String sessionId) {
-        if (sessionId == null) {
-            System.out.println("Cannot remove a null session ID");
-            return;
+    public void removeSession(String sessionId) {
+        if (sessionId == null) return;
+        String userId = sessionToUser.remove(sessionId);
+        if (userId != null) {
+            Set<String> sessions = userSessions.get(userId);
+            if (sessions != null) {
+                sessions.remove(sessionId);
+                if (sessions.isEmpty()) {
+                    userSessions.remove(userId);
+                }
+            }
+            logger.debug("Session removed: user={} session={}", userId, sessionId);
         }
-        userSessionMap.values().remove(sessionId);
-        System.out.println("Session Removed: " + sessionId);
     }
 
-    /**
-     * Retrieves the session ID for a given user ID.
-     * @param userId The ID of the user.
-     * @return The session ID associated with the user, or null if not found.
-     */
-    public static String getSessionId(String userId) {
-        if (userId == null) {
-            System.out.println("User ID is null. Cannot get session ID.");
-            return null;
-        }
-        String sessionId = userSessionMap.get(userId);
-        if (sessionId == null) {
-            System.out.println("No session found for User ID: " + userId);
-        }
-        return sessionId;
+    public Set<String> getSessions(String userId) {
+        if (userId == null) return Collections.emptySet();
+        return userSessions.getOrDefault(userId, Collections.emptySet());
     }
 
-    /**
-     * Debug method to print all sessions.
-     */
-    public static void printAllSessions() {
-        System.out.println("Current WebSocket Sessions:");
-        userSessionMap.forEach((userId, sessionId) ->
-                System.out.println("User: " + userId + " -> Session: " + sessionId)
-        );
+    public boolean isUserOnline(String userId) {
+        return userId != null && userSessions.containsKey(userId) && !userSessions.get(userId).isEmpty();
     }
 }
