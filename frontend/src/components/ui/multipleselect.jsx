@@ -119,10 +119,11 @@ const MultipleSelector = React.forwardRef(
 
     useEffect(() => {
       /** If `onSearch` is provided, do not trigger options updated. */
-      if (!arrayOptions || onSearch) {
+      if (onSearch) {
         return;
       }
-      const newOption = transToGroupOption(arrayOptions || [], groupBy);
+      const sourceOptions = arrayOptions || arrayDefaultOptions || [];
+      const newOption = transToGroupOption(sourceOptions, groupBy);
       if (JSON.stringify(newOption) !== JSON.stringify(options)) {
         setOptions(newOption);
       }
@@ -252,9 +253,9 @@ const MultipleSelector = React.forwardRef(
       >
         <div
           className={cn(
-            "min-h-10 rounded-md border border-input text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+            "min-h-10 rounded-xl border border-white/[0.09] bg-[#161920] text-sm transition-colors focus-within:border-emerald-500/50 focus-within:ring-2 focus-within:ring-emerald-500/15",
             {
-              "px-3 py-2": selected.length !== 0,
+              "px-2.5 py-2": selected.length !== 0,
               "cursor-text": !disabled && selected.length !== 0,
             },
             className
@@ -264,23 +265,24 @@ const MultipleSelector = React.forwardRef(
             inputRef.current?.focus();
           }}
         >
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             {selected.map((option) => {
               return (
                 <Badge
                   key={option.value}
                   className={cn(
-                    "data-[disabled]:bg-muted-foreground data-[disabled]:text-muted data-[disabled]:hover:bg-muted-foreground bg-purple-500 p-2",
-                    "data-[fixed]:bg-muted-foreground data-[fixed]:text-muted data-[fixed]:hover:bg-muted-foreground",
+                    "data-[disabled]:bg-muted-foreground data-[disabled]:text-muted bg-zinc-800/90 hover:bg-zinc-800 text-zinc-100 border border-white/[0.08] px-2 py-1 text-xs font-medium rounded-lg gap-1",
+                    "data-[fixed]:bg-muted-foreground data-[fixed]:text-muted",
                     badgeClassName
                   )}
                   data-fixed={option.fixed}
                   data-disabled={disabled || undefined}
                 >
-                  {option.label}
+                  <span className="max-w-[180px] truncate">{option.label}</span>
                   <button
+                    type="button"
                     className={cn(
-                      "ml-1 rounded-full text-white outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                      "ml-0.5 rounded-md p-0.5 text-zinc-400 outline-none hover:bg-white/10 hover:text-zinc-100 transition-colors",
                       (disabled || option.fixed) && "hidden"
                     )}
                     onKeyDown={(e) => {
@@ -294,7 +296,7 @@ const MultipleSelector = React.forwardRef(
                     }}
                     onClick={() => handleUnselect(option)}
                   >
-                    <X className="h-4 w-4 text-white hover:text-purple-500" />
+                    <X className="h-3 w-3" />
                   </button>
                 </Badge>
               );
@@ -326,19 +328,24 @@ const MultipleSelector = React.forwardRef(
                   : placeholder
               }
               className={cn(
-                "flex-1 bg-transparent outline-none placeholder:text-muted-foreground",
+                "flex-1 min-w-[120px] bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500",
                 {
                   "w-full": hidePlaceholderWhenSelected,
                   "px-3 py-2": selected.length === 0,
-                  "ml-1": selected.length !== 0,
+                  "px-1 py-0.5": selected.length !== 0,
                 },
                 inputProps?.className
               )}
             />
             <button
               type="button"
-              onClick={() => setSelected(selected.filter((s) => s.fixed))}
+              onClick={() => {
+                const kept = selected.filter((s) => s.fixed);
+                setSelected(kept);
+                onChange?.(kept);
+              }}
               className={cn(
+                "p-1 text-zinc-500 hover:text-zinc-200 transition-colors",
                 (hideClearAllButton ||
                   disabled ||
                   selected.length < 1 ||
@@ -346,14 +353,14 @@ const MultipleSelector = React.forwardRef(
                   "hidden"
               )}
             >
-              <X />
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
         <div className="relative">
           {open && (
             <CommandList
-              className="absolute top-1 z-10 w-full rounded-md border bg-popover text-popover-foreground shadow-md outline-none animate-in"
+              className="absolute top-1.5 z-20 max-h-48 w-full overflow-y-auto rounded-xl border border-white/[0.1] bg-[#161920] p-1 text-zinc-100 shadow-2xl outline-none animate-in"
               onMouseLeave={() => {
                 mouseOn.current = false;
               }}
@@ -384,7 +391,7 @@ const MultipleSelector = React.forwardRef(
                           return (
                             <CommandItem
                               key={option.value}
-                              value={option.value}
+                              value={option.label}
                               disabled={option.disable}
                               onMouseDown={(e) => {
                                 e.preventDefault();
@@ -401,9 +408,9 @@ const MultipleSelector = React.forwardRef(
                                 onChange?.(newOptions);
                               }}
                               className={cn(
-                                "cursor-pointer",
+                                "cursor-pointer rounded-lg px-2.5 py-2 text-sm text-zinc-200 aria-[selected='true']:bg-white/[0.07] aria-[selected='true']:text-white",
                                 option.disable &&
-                                  "cursor-default text-muted-foreground"
+                                  "cursor-default text-zinc-500"
                               )}
                             >
                               {option.label}

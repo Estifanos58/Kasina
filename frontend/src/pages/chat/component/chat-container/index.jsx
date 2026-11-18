@@ -1,15 +1,15 @@
-import ChatHeader from "./components/chat-header"
-import MessageBar from "./components/message-bar"
-import MessageContainer from "./components/message-container"
+import ChatHeader from "./components/chat-header";
+import MessageBar from "./components/message-bar";
+import MessageContainer from "./components/message-container";
 
 const ChatContainer = () => {
   return (
-    <div className='fixed top-0 h-[100vh] w-[100vw] lg:w-[70vw] bg-[#121212] flex flex-col md:static md:flex-1'>
-        <ChatHeader />
-        <MessageContainer />
-        <MessageBar /> 
-    </div>
-  )
-}
+    <section className="flex-1 flex flex-col min-w-0 h-full bg-[#0B0C0E]">
+      <ChatHeader />
+      <MessageContainer />
+      <MessageBar />
+    </section>
+  );
+};
 
-export default ChatContainer
+export default ChatContainer;

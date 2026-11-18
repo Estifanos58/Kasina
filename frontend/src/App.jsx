@@ -1,66 +1,95 @@
-import { useEffect, useState } from 'react';  
-import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';  
-import Auth from './pages/auth';  
-import Profile from './pages/profile';  
-import Chat from './pages/chat';  
-import { useAppStore } from './store';  
-import { apiClient } from './lib/api-client';  
-import { GET_USER_INFO } from './utils/constants';  
+import { useEffect, useState } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import Auth from "./pages/auth";
+import Profile from "./pages/profile";
+import Chat from "./pages/chat";
+import { useAppStore } from "./store";
+import { apiClient } from "./lib/api-client";
+import { GET_USER_INFO } from "./utils/constants";
+import KasinaLogo from "./components/kasina-logo";
 
-const PrivateRoute = ({ children }) => {  
-  const { userInfo } = useAppStore();  
-  const isAuthenticated = userInfo != null; // Should be true if userInfo is available  
-  return isAuthenticated ? children : <Navigate to="/auth" />;  
-};  
+const PrivateRoute = ({ children }) => {
+  const { userInfo } = useAppStore();
+  const isAuthenticated = userInfo != null;
+  return isAuthenticated ? children : <Navigate to="/auth" replace />;
+};
 
-const AuthRoute = ({ children }) => {  
-  const { userInfo } = useAppStore();  
-  const isAuthenticated = userInfo != null; // Should be true if userInfo is available  
-  return isAuthenticated ? <Navigate to="/chat" /> : children;  
-};  
+const AuthRoute = ({ children }) => {
+  const { userInfo } = useAppStore();
+  const isAuthenticated = userInfo != null;
+  return isAuthenticated ? <Navigate to="/chat" replace /> : children;
+};
 
-const App = () => {  
-  const { userInfo, setUserInfo } = useAppStore();  
-  const [isLoading, setLoading] = useState(true);  
+const App = () => {
+  const { userInfo, setUserInfo } = useAppStore();
+  const [isLoading, setLoading] = useState(true);
 
-  useEffect(() => {  
-    const getUserData = async () => {  
-      try {  
-        const response = await apiClient.get(GET_USER_INFO);  
-        if (response.status === 200 && response.data.id) {  
-          setUserInfo(response.data);  
-        } else {  
+  useEffect(() => {
+    const getUserData = async () => {
+      try {
+        const response = await apiClient.get(GET_USER_INFO);
+        if (response.status === 200 && response.data.id) {
+          setUserInfo(response.data);
+        } else {
           setUserInfo(null);
-        }  
-      } catch (err) {  
-        console.error("Auth check failed:", err);  
+        }
+      } catch (_err) {
         setUserInfo(null);
-      } finally {  
-        setLoading(false);  
-      }  
-    };  
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (!userInfo) {  
-      getUserData();  
-    } else {  
-      setLoading(false);  
-    }  
-  }, [userInfo, setUserInfo]);  
+    if (!userInfo) {
+      getUserData();
+    } else {
+      setLoading(false);
+    }
+  }, [userInfo, setUserInfo]);
 
-  if (isLoading) {  
-    return <div className='h-[100vh] w-[100vw] flex justify-center items-center font-bold text-2xl'>Loading ...</div>;  
-  }  
+  if (isLoading) {
+    return (
+      <div className="h-dvh w-screen bg-[#0B0C0E] flex flex-col items-center justify-center gap-4">
+        <KasinaLogo size="lg" showWordmark={false} />
+        <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Connecting workspace</span>
+        </div>
+      </div>
+    );
+  }
 
-  return (  
-    <BrowserRouter>  
-      <Routes>  
-        <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />  
-        <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />  
-        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />  
-        <Route path="*" element={<Navigate to="/auth" />} />  
-      </Routes>  
-    </BrowserRouter>  
-  );  
-};  
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          path="/auth"
+          element={
+            <AuthRoute>
+              <Auth />
+            </AuthRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <PrivateRoute>
+              <Chat />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <PrivateRoute>
+              <Profile />
+            </PrivateRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/auth" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+};
 
 export default App;

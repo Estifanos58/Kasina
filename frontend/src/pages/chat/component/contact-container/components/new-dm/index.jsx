@@ -1,10 +1,11 @@
+import { useState } from "react";
+import { Plus, Search, Users } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,132 +13,159 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { SEARCH_CONTACTS_ROUTES } from "@/utils/constants";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar } from "@/components/ui/avatar";
-import { AvatarImage } from "@/components/ui/avatar";
-import { getColor } from "@/lib/utils";
+import { getDisplayName } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { IoPersonAddSharp } from "react-icons/io5";
+import UserAvatar from "@/components/user-avatar";
 
 const NewDm = () => {
-  const { setSelectedChatType, setSelectedChatData } = useAppStore();
+  const { setSelectedChatType, setSelectedChatData, setSelectedChatMessages } =
+    useAppStore();
   const [openNewContact, setOpenNewContact] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const [searchedContacts, setSearchedContacts] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Function to search contacts
-  const searchContacts = async (searchTerm) => {
+  const searchContacts = async (query) => {
+    setSearchTerm(query);
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSearchedContacts([]);
+      setIsSearching(false);
+      return;
+    }
+
     try {
-      if (searchTerm.length > 0) {
-        // Send POST request to search endpoint
-        const response = await apiClient.post(
-          SEARCH_CONTACTS_ROUTES,
-          { searchTerm }, // Send searchTerm in the request body
-          { withCredentials: true }
-        );
+      setIsSearching(true);
+      const response = await apiClient.post(
+        SEARCH_CONTACTS_ROUTES,
+        { searchTerm: trimmed },
+        { withCredentials: true }
+      );
 
-        if (response.status === 200) {
-          setSearchedContacts(response.data); // Store contacts
-        } else {
-          setSearchedContacts([]);
-        }
+      if (response.status === 200 && Array.isArray(response.data)) {
+        setSearchedContacts(response.data);
       } else {
         setSearchedContacts([]);
       }
     } catch (error) {
       console.error("Error searching contacts:", error);
+      setSearchedContacts([]);
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  // Select a new contact
   const selectNewContact = (contact) => {
     setOpenNewContact(false);
+    setSelectedChatMessages([]);
     setSelectedChatType("contact");
     setSelectedChatData(contact);
+    setSearchTerm("");
     setSearchedContacts([]);
   };
 
+  const handleOpenChange = (open) => {
+    setOpenNewContact(open);
+    if (!open) {
+      setSearchTerm("");
+      setSearchedContacts([]);
+    }
+  };
+
   return (
-    <div>
-      <TooltipProvider>
+    <>
+      <TooltipProvider delayDuration={200}>
         <Tooltip>
-          <TooltipTrigger>
-            {/* <FaPlus
-              className="text-neutral-400 font-light text-opacity-90 text-start hover:text-neutral-100 cursor-pointer transition-all duration-300 "
+          <TooltipTrigger asChild>
+            <button
+              type="button"
               onClick={() => setOpenNewContact(true)}
-            /> */}
-            <IoPersonAddSharp className="text-neutral-400 font-light text-opacity-90 text-start mr-5 hover:text-neutral-100 cursor-pointer transition-all duration-300 "
-              onClick={() => setOpenNewContact(true)} />
+              aria-label="New direct message"
+              className="h-6 w-6 rounded-md flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.07] transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           </TooltipTrigger>
-          <TooltipContent className="bg-[#1c1b1e] border-none mb-2 p-2 text-white">
-            ADD New Contact
-          </TooltipContent>
+          <TooltipContent>New direct message</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <Dialog open={openNewContact} onOpenChange={setOpenNewContact}>
-        <DialogContent className="bg-[#181920] border-none text-white w-[70%] h-[70%] lg:w-[480px] lg:h-[400px] flex flex-col">
+
+      <Dialog open={openNewContact} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle className="text-1xl">Please select a contact</DialogTitle>
-            <DialogDescription></DialogDescription>
+            <DialogTitle>New direct message</DialogTitle>
+            <DialogDescription>
+              Find someone by name or email address to start a private thread.
+            </DialogDescription>
           </DialogHeader>
-          <div>
-            <Input
-              placeholder="Search Contacts"
-              className="rounded-lg p-6 bg-[#2c2e3b] border-none "
+
+          <div className="relative">
+            <Search className="h-4 w-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              autoFocus
+              value={searchTerm}
               onChange={(e) => searchContacts(e.target.value)}
+              placeholder="Search by name or email..."
+              className="w-full h-10 rounded-xl bg-[#161920] border border-white/[0.09] pl-10 pr-3.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/15"
             />
           </div>
-          <ScrollArea className="h-[250px]">
-            <div className="flex flex-col gap-5">
-              {searchedContacts.map((contact, index) => (
-                <div
-                  className="flex gap-3 items-center cursor-pointer"
-                  key={index}
-                  onClick={() => selectNewContact(contact)}
-                >
-                  <div className="w-12 h-12 relative">
-                    <Avatar className="h-12 w-12  rounded-full overflow-hidden">
-                      {contact.image ? (
-                        <AvatarImage
-                          src={contact.image}
-                          alt="profile"
-                          className="object-cover w-full h-full bg-black"
-                        />
-                      ) : (
-                        <div
-                          className={`uppercase h-12 w-12 text-lg border-[1px] flex items-center justify-center rounded-full ${getColor(
-                            contact.color
-                          )}`}
-                        >
-                          {contact.firstname
-                            ? contact.firstname.charAt(0)
-                            : contact.email.charAt(0)}
-                        </div>
-                      )}
-                    </Avatar>
-                  </div>
-                  <div className="flex flex-col">
-                    <span>
-                      {contact.firstname && contact.lastname
-                        ? `${contact.firstname} ${contact.lastname}`
-                        : contact.email}
-                    </span>
-                    <span className="text-xs">{contact.email}</span>
-                  </div>
+
+          <ScrollArea className="h-[260px] -mx-1 px-1">
+            {isSearching ? (
+              <div className="h-[240px] flex items-center justify-center text-xs text-zinc-500">
+                Searching directory...
+              </div>
+            ) : searchedContacts.length > 0 ? (
+              <div className="space-y-1">
+                {searchedContacts.map((contact, index) => {
+                  const name = getDisplayName(contact);
+                  return (
+                    <button
+                      type="button"
+                      key={contact.id || index}
+                      onClick={() => selectNewContact(contact)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left hover:bg-white/[0.05] transition-colors"
+                    >
+                      <UserAvatar user={contact} size="md" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-zinc-100 truncate">
+                          {name}
+                        </p>
+                        <p className="text-xs text-zinc-500 truncate">
+                          {contact.email}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="h-[240px] flex flex-col items-center justify-center text-center px-6 gap-2.5">
+                <div className="h-10 w-10 rounded-xl bg-white/[0.04] border border-white/[0.07] flex items-center justify-center text-zinc-500">
+                  <Users className="h-4 w-4" />
                 </div>
-              ))}
-            </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-zinc-300">
+                    {searchTerm.trim()
+                      ? "No matching contacts"
+                      : "Search for a contact"}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {searchTerm.trim()
+                      ? "Check the spelling or try a different email."
+                      : "Start typing a name or email address above."}
+                  </p>
+                </div>
+              </div>
+            )}
           </ScrollArea>
-          {searchedContacts.length <= 0 && (
-            <div className="text-2xl flex flex-col justify-center items-center mt-[-150px] h-[100%]">
-              There is no Contact 😒
-            </div>
-          )}
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
 

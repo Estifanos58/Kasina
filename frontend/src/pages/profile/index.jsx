@@ -1,225 +1,397 @@
 import { useEffect, useState, useRef } from "react";
-import { useAppStore } from "@/store";
-import { IoArrowBack } from "react-icons/io5";
-import { Avatar, AvatarImage } from "@/components/ui/avatar";
-import { getColor } from "../../lib/utils";
-import { FaTrash, FaPlus } from "react-icons/fa";
-import { Input } from "@/components/ui/input";
-import { colors } from "../../lib/utils";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { apiClient } from "@/lib/api-client";
-import { REMOVE_PROFILE_IMAGE_ROUTE, UPDATE_PROFILE_ROUTE } from "@/utils/constants";
 import { useNavigate } from "react-router-dom";
-import imageCompression from 'browser-image-compression';  
+import { toast } from "sonner";
+import imageCompression from "browser-image-compression";
+import {
+  ArrowLeft,
+  Camera,
+  Check,
+  Loader2,
+  Lock,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { useAppStore } from "@/store";
+import { apiClient } from "@/lib/api-client";
+import {
+  REMOVE_PROFILE_IMAGE_ROUTE,
+  UPDATE_PROFILE_ROUTE,
+} from "@/utils/constants";
+import { getFirstName, getLastName, swatchColors } from "@/lib/utils";
+import UserAvatar from "@/components/user-avatar";
+import KasinaLogo from "@/components/kasina-logo";
 
 const Profile = () => {
-  const { userInfo , setUserInfo} = useAppStore();
+  const { userInfo, setUserInfo } = useAppStore();
   const [firstName, setFirstName] = useState("");
-  const [LastName, setLastName] = useState("");
-  const [Image, setImage] = useState(null);
-  const [hovered, setHovered] = useState(false);
+  const [lastName, setLastName] = useState("");
+  const [image, setImage] = useState(null);
   const [selectedColor, setSelectedColor] = useState(0);
-  const navigate = useNavigate();
-  const fileinputRef = useRef(null);
   const [isLoading, setLoading] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [isRemovingImage, setIsRemovingImage] = useState(false);
+  const navigate = useNavigate();
+  const fileInputRef = useRef(null);
 
-  useEffect(()=>{
-    if(userInfo.profileSetup){
-      setFirstName(userInfo?.firstname)
-      setLastName(userInfo?.lastname)
-      setSelectedColor(userInfo?.color)
+  useEffect(() => {
+    if (!userInfo) return;
+    if (userInfo.profileSetup) {
+      setFirstName(getFirstName(userInfo));
+      setLastName(getLastName(userInfo));
+      setSelectedColor(
+        typeof userInfo.color === "number" ? userInfo.color : 0
+      );
     }
-    if(userInfo.image){
-      setImage(userInfo.image)
+    if (userInfo.image) {
+      setImage(userInfo.image);
     }
-  },[userInfo])
+  }, [userInfo]);
 
   const validateProfile = () => {
-    if (!firstName) {
-      toast.error("FirstName is Required");
+    if (!firstName.trim()) {
+      toast.error("First name is required.");
       return false;
     }
-    if (!LastName) {
-      toast.error("LastName is requried");
+    if (!lastName.trim()) {
+      toast.error("Last name is required.");
       return false;
     }
     return true;
   };
 
-  const saveChanges = async () => {
-    if (validateProfile()) {
-      try {
-        setLoading(true);
+  const saveChanges = async (e) => {
+    e.preventDefault();
+    if (!validateProfile() || isLoading) return;
 
-        const response = await apiClient.post(
-          UPDATE_PROFILE_ROUTE,
-          { firstname: firstName, lastname: LastName, color: selectedColor, image: Image?Image:""},
-          { withCredentials: true }
-        );
-        if(response.status === 200 && response.data){
-          setUserInfo({...response.data})
-          setLoading(false);
-          toast.success("Profile updated successfully");
-          navigate("/chat")
-        }
-      } catch (err) {
-        setLoading(false)
-        console.error("Profile update error:", err.message);
+    try {
+      setLoading(true);
+      const response = await apiClient.post(
+        UPDATE_PROFILE_ROUTE,
+        {
+          firstname: firstName.trim(),
+          lastname: lastName.trim(),
+          color: selectedColor,
+          image: image || "",
+        },
+        { withCredentials: true }
+      );
+      if (response.status === 200 && response.data) {
+        setUserInfo({ ...response.data });
+        toast.success("Profile saved.");
+        navigate("/chat");
       }
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message || "Failed to update profile. Try again.";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleNavigate =()=>{
-    if(userInfo.profileSetup){
-      navigate('/chat');
-    } else{
-      toast.error('Please setup profile.')
+  const handleNavigateBack = () => {
+    if (userInfo?.profileSetup) {
+      navigate("/chat");
+    } else {
+      toast.error("Please complete your profile before continuing.");
     }
-  }
+  };
 
-  const handleFileInputClick = ()=>{
-    fileinputRef.current.click();
-  }
+  const handleFileInputClick = () => {
+    fileInputRef.current?.click();
+  };
 
-  const handleImageChange = async (event)=>{
-    const file = event.target.files[0];
-    try {  
-      // Compress the image  
-      const options = {  
-        maxSizeMB: 1, // Maximum size in MB  
-        maxWidthOrHeight: 1920, // Maximum width or height  
-        useWebWorker: true, // Use web worker for faster processing  
-      };  
-      const compressedFile = await imageCompression(file, options);  
+  const handleImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-      // Convert the compressed file to Base64  
-      const reader = new FileReader();  
-      reader.onloadend = () => {  
-        setImage(reader.result); // This will be the Base64 string 
-        console.log("Image uploaded", Image) 
-      };  
-      reader.readAsDataURL(compressedFile);  
-    } catch (error) {  
-      console.error('Error compressing or converting to Base64:', error);  
-    } 
-  }
-
-
-  const handleDeleteImage = async () =>{
     try {
-      const response = await apiClient.delete(REMOVE_PROFILE_IMAGE_ROUTE,{withCredentials:true});
-      if(response.status === 200){
-        setUserInfo({...userInfo, image:null});
-        toast.success("Image remove successfully")
-        setImage(null);
-      }
-    } catch (error) {
-      console.log(error)
+      setIsCompressing(true);
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1920,
+        useWebWorker: true,
+      };
+      const compressedFile = await imageCompression(file, options);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImage(reader.result);
+        setIsCompressing(false);
+      };
+      reader.onerror = () => {
+        setIsCompressing(false);
+        toast.error("Could not read image file.");
+      };
+      reader.readAsDataURL(compressedFile);
+    } catch (_error) {
+      setIsCompressing(false);
+      toast.error("Failed to process image.");
+    } finally {
+      if (event.target) event.target.value = "";
     }
-  }
+  };
+
+  const handleDeleteImage = async () => {
+    if (!image || isRemovingImage) return;
+    // If image wasn't persisted on server yet, clear locally
+    if (!userInfo?.image) {
+      setImage(null);
+      return;
+    }
+    try {
+      setIsRemovingImage(true);
+      const response = await apiClient.delete(REMOVE_PROFILE_IMAGE_ROUTE, {
+        withCredentials: true,
+      });
+      if (response.status === 200) {
+        setUserInfo({ ...userInfo, image: null });
+        setImage(null);
+        toast.success("Profile photo removed.");
+      }
+    } catch (_error) {
+      toast.error("Failed to remove profile photo.");
+    } finally {
+      setIsRemovingImage(false);
+    }
+  };
+
+  const previewUser = {
+    firstname: firstName,
+    lastname: lastName,
+    email: userInfo?.email,
+    image,
+    color: selectedColor,
+  };
 
   return (
-    <div className="bg-[#1b1c24] h-[100vh] flex items-center justify-center flex-col lg:gap-10">
-      <div className="flex flex-col lg:gap-10 w-[80vw] md:w-max">
-        <div>
-          <IoArrowBack className="text=3xl lg:text-4xl text-white/90 cursor-pointer" onClick={handleNavigate} />
-        </div>
-        <div className="grid grid-cols-2">
-          <div
-            className="h-ful w-32 m:w-48 md:h-48 relative flex items-center justify-center"
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
+    <div className="min-h-dvh w-full bg-[#0B0C0E] text-zinc-100 flex flex-col">
+      {/* Top navigation bar */}
+      <header className="h-16 px-6 border-b border-white/[0.06] flex items-center justify-between shrink-0">
+        {userInfo?.profileSetup ? (
+          <button
+            type="button"
+            onClick={handleNavigateBack}
+            className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
           >
-            <Avatar className="h-32 w-32 md:w-48 md:h-48 rounded-full overflow-hidden">
-              {Image ? (
-                <AvatarImage
-                  src={Image}
-                  alt="profile"
-                  className="object-cover w-full h-full bg-black"
-                />
-              ) : (
-                <div
-                  className={`uppercase h-32 w-32 md:w-48 md:h-48 text-5xl border-[1px] flex items-center justify-center rounded-full ${getColor(
-                    selectedColor
-                  )}`}
-                >
-                  {firstName
-                    ? firstName.split("").shift()
-                    : userInfo.email.split("").shift()}
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to messages</span>
+          </button>
+        ) : (
+          <KasinaLogo size="sm" />
+        )}
+        <span className="text-xs font-mono text-zinc-500">
+          {userInfo?.profileSetup ? "Account settings" : "Onboarding"}
+        </span>
+      </header>
+
+      {/* Main content */}
+      <main className="flex-1 flex items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-[520px] space-y-6">
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-semibold tracking-[-0.025em] text-zinc-50">
+              {userInfo?.profileSetup ? "Profile settings" : "Set up your profile"}
+            </h1>
+            <p className="text-sm text-zinc-400">
+              {userInfo?.profileSetup
+                ? "Update how your name and avatar appear across conversations."
+                : "Add your name and optionally choose a photo or avatar accent."}
+            </p>
+          </div>
+
+          <form
+            onSubmit={saveChanges}
+            className="rounded-2xl border border-white/[0.08] bg-[#111317] p-6 sm:p-7 space-y-6 shadow-xl"
+          >
+            {/* Avatar section */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-5 pb-6 border-b border-white/[0.06]">
+              <button
+                type="button"
+                onClick={handleFileInputClick}
+                className="group relative h-24 w-24 rounded-full shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                aria-label="Upload profile photo"
+              >
+                <UserAvatar user={previewUser} size="xl" />
+                <div className="absolute inset-0 rounded-full bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  {isCompressing ? (
+                    <Loader2 className="h-5 w-5 text-white animate-spin" />
+                  ) : (
+                    <Camera className="h-5 w-5 text-white" />
+                  )}
                 </div>
-              )}
-            </Avatar>
-            {hovered && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 ring-fuchsia-50 rounded-full" onClick={Image ? handleDeleteImage : handleFileInputClick}>
-                {Image ? (
-                  <FaTrash className="text-white text-3xl cursor-pointer" />
-                ) : (
-                  <FaPlus className="text-white text-3xl cursor-pointer" />
-                )}
+              </button>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleImageChange}
+                name="profile-image"
+                accept=".png, .jpg, .jpeg, .svg, .webp"
+              />
+
+              <div className="space-y-2.5">
+                <div>
+                  <p className="text-sm font-medium text-zinc-100">
+                    Profile photo
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    PNG, JPG, or WEBP. Automatically compressed.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFileInputClick}
+                    disabled={isCompressing}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#1A1D24] hover:bg-[#222630] border border-white/[0.08] text-xs font-medium text-zinc-200 transition-colors disabled:opacity-50"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>{image ? "Change photo" : "Upload photo"}</span>
+                  </button>
+                  {image && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteImage}
+                      disabled={isRemovingImage}
+                      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-red-500/10 hover:bg-red-500/15 border border-red-500/20 text-xs font-medium text-red-300 transition-colors disabled:opacity-50"
+                    >
+                      {isRemovingImage ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      <span>Remove</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-            <input
-              type="file"
-              ref={fileinputRef}
-              className="hidden"
-              onChange={handleImageChange}
-              name="profile-image"
-              accept=".png, .jpg, .jpeg, .svg, .webp"
-            />
-          </div>
-          <div className="flex min-w-32 md:min-w-64 flex-col gap-5 text-white items-center justify-center">
-            <div className="w-full">
-              <Input
-                placeholder="Email"
-                type="email"
-                disabled
-                value={userInfo.email}
-                className="rounded-1g p-6 bg-[#2c2e3b] border-none"
-              />
             </div>
-            <div className="w-full">
-              <Input
-                placeholder="First Name"
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="rounded-lg p-6 bg-[#2c2e3b] border-none"
-              />
+
+            {/* Form inputs */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="profile-email"
+                  className="block text-xs font-medium text-zinc-400"
+                >
+                  Email address
+                </label>
+                <div className="relative">
+                  <input
+                    id="profile-email"
+                    type="email"
+                    disabled
+                    value={userInfo?.email || ""}
+                    className="w-full h-11 rounded-xl bg-[#0D0F13] border border-white/[0.06] pl-3.5 pr-10 text-sm text-zinc-500 cursor-not-allowed"
+                  />
+                  <Lock className="h-3.5 w-3.5 text-zinc-600 absolute right-3.5 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="profile-first-name"
+                    className="block text-xs font-medium text-zinc-300"
+                  >
+                    First name
+                  </label>
+                  <input
+                    id="profile-first-name"
+                    type="text"
+                    placeholder="Alex"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    disabled={isLoading}
+                    className="w-full h-11 rounded-xl bg-[#161920] border border-white/[0.09] px-3.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/15"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="profile-last-name"
+                    className="block text-xs font-medium text-zinc-300"
+                  >
+                    Last name
+                  </label>
+                  <input
+                    id="profile-last-name"
+                    type="text"
+                    placeholder="Rivera"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    disabled={isLoading}
+                    className="w-full h-11 rounded-xl bg-[#161920] border border-white/[0.09] px-3.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition-all focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/15"
+                  />
+                </div>
+              </div>
+
+              {/* Avatar color accent picker */}
+              <div className="space-y-2 pt-1">
+                <span className="block text-xs font-medium text-zinc-300">
+                  Avatar accent
+                </span>
+                <div className="flex items-center gap-2.5">
+                  {swatchColors.map((swatch, index) => {
+                    const isSelected = selectedColor === index;
+                    return (
+                      <button
+                        type="button"
+                        key={swatch.label}
+                        title={swatch.label}
+                        aria-label={`Select ${swatch.label} avatar color`}
+                        onClick={() => setSelectedColor(index)}
+                        className={`h-8 w-8 rounded-full flex items-center justify-center transition-all ${
+                          swatch.dot
+                        } ${
+                          isSelected
+                            ? `ring-2 ring-offset-2 ring-offset-[#111317] ${swatch.ring} scale-105`
+                            : "opacity-70 hover:opacity-100"
+                        }`}
+                      >
+                        {isSelected && (
+                          <Check className="h-3.5 w-3.5 text-zinc-950 stroke-[2.75]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-            <div className="w-full">
-              <Input
-                placeholder="Last Name"
-                type="text"
-                value={LastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="rounded-lg p-6 bg-[#2c2e3b] border-none"
-              />
+
+            {/* Submit */}
+            <div className="pt-2 flex items-center justify-end gap-3">
+              {userInfo?.profileSetup && (
+                <button
+                  type="button"
+                  onClick={handleNavigateBack}
+                  className="h-10 px-4 rounded-xl text-sm font-medium text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="h-10 px-5 rounded-xl bg-zinc-100 hover:bg-white active:scale-[0.99] text-zinc-950 text-sm font-medium inline-flex items-center justify-center gap-2 transition-all disabled:opacity-60 disabled:pointer-events-none"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>
+                    {userInfo?.profileSetup
+                      ? "Save changes"
+                      : "Continue to workspace"}
+                  </span>
+                )}
+              </button>
             </div>
-            <div className="w-full flex gap-5">
-              {colors?.map((color, index) => (
-                <div
-                  className={`${color} h-8 w-8 rounded-full cursor-pointer transition-all duration-300 ${
-                    selectedColor === index
-                      ? "outline outline-white/90 outline-1"
-                      : ""
-                  }`}
-                  key={index}
-                  onClick={() => setSelectedColor(index)}
-                ></div>
-              ))}
-            </div>
-          </div>
+          </form>
         </div>
-        <div className="w-full">
-          <Button
-            className="h-16 w-full mt-8 bg-purple-700 hover:bg-purple-900 transition-all duration-300"
-            onClick={saveChanges}
-          >
-            {isLoading ? "Loading..." : "Save Profile"}
-          </Button>
-        </div>
-      </div>
+      </main>
     </div>
   );
 };
