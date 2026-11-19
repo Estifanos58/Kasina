@@ -23,29 +23,61 @@ public class JwtUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
 
+    private static final int MIN_SECRET_LENGTH = 32;
+
     @Value("${jwt.secret:}")
     private String configuredSecret;
 
     @Value("${jwt.expiration-ms:86400000}")
     private long expirationTimeMs;
 
+    @Value("${jwt.cookie-name:jwt}")
+    private String cookieName = "jwt";
+
     private SecretKey secretKey;
 
     @PostConstruct
     public void init() {
-        String secret = configuredSecret;
-        if (secret == null || secret.trim().isEmpty()) {
-            logger.warn("No JWT secret provided in configuration! Using internal development key.");
-            secret = "kasina-default-dev-secret-key-replace-in-production-environment-32bytes";
+        if (configuredSecret == null || configuredSecret.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET (jwt.secret) must be configured and cannot be blank."
+            );
         }
+
+        String secret = configuredSecret.trim();
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException(
+                    "JWT_SECRET (jwt.secret) must be at least " + MIN_SECRET_LENGTH + " bytes long."
+            );
+        }
+
+        String lower = secret.toLowerCase();
+        if (lower.contains("your-random-jwt-secret")
+                || lower.contains("change-in-production")
+                || lower.contains("replace-in-production")
+                || lower.contains("kasina-default-dev-secret")) {
+            throw new IllegalStateException(
+                    "JWT_SECRET (jwt.secret) cannot use a placeholder or default value."
+            );
+        }
+
         try {
-            // Ensure minimum 256-bit key length via SHA-256 derivation
+            // Derive a consistent 256-bit HMAC key from the validated secret
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(secretBytes);
             this.secretKey = Keys.hmacShaKeyFor(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Failed to initialize JWT secret key", e);
         }
+    }
+
+    public long getExpirationTimeMs() {
+        return expirationTimeMs;
+    }
+
+    public String getCookieName() {
+        return cookieName != null && !cookieName.isBlank() ? cookieName : "jwt";
     }
 
     /**
@@ -96,12 +128,20 @@ public class JwtUtil {
         }
 
         // 2. Check jwt cookie
-        Cookie jwtCookie = WebUtils.getCookie(request, "jwt");
+        Cookie jwtCookie = WebUtils.getCookie(request, getCookieName());
         if (jwtCookie != null && jwtCookie.getValue() != null && !jwtCookie.getValue().isEmpty()) {
             return jwtCookie.getValue();
         }
 
         return null;
+    }
+
+    public boolean hasJwtCookie(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        Cookie jwtCookie = WebUtils.getCookie(request, getCookieName());
+        return jwtCookie != null && jwtCookie.getValue() != null && !jwtCookie.getValue().isEmpty();
     }
 
     /**

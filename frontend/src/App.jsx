@@ -4,7 +4,7 @@ import Auth from "./pages/auth";
 import Profile from "./pages/profile";
 import Chat from "./pages/chat";
 import { useAppStore } from "./store";
-import { apiClient } from "./lib/api-client";
+import { apiClient, setUnauthorizedHandler } from "./lib/api-client";
 import { GET_USER_INFO } from "./utils/constants";
 import KasinaLogo from "./components/kasina-logo";
 
@@ -21,30 +21,50 @@ const AuthRoute = ({ children }) => {
 };
 
 const App = () => {
-  const { userInfo, setUserInfo } = useAppStore();
+  const { userInfo, setUserInfo, resetChatState } = useAppStore();
   const [isLoading, setLoading] = useState(true);
 
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      resetChatState();
+      setUserInfo(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [resetChatState, setUserInfo]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const getUserData = async () => {
       try {
         const response = await apiClient.get(GET_USER_INFO);
-        if (response.status === 200 && response.data.id) {
-          setUserInfo(response.data);
-        } else {
-          setUserInfo(null);
+        if (!cancelled) {
+          if (response.status === 200 && response.data?.id) {
+            setUserInfo(response.data);
+          } else {
+            setUserInfo(null);
+          }
         }
       } catch (_err) {
-        setUserInfo(null);
+        if (!cancelled) {
+          setUserInfo(null);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    if (!userInfo) {
+    if (userInfo === undefined) {
       getUserData();
     } else {
       setLoading(false);
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [userInfo, setUserInfo]);
 
   if (isLoading) {

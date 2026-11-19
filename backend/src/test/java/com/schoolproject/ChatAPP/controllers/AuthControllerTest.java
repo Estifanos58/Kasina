@@ -5,6 +5,7 @@ import com.schoolproject.ChatAPP.model.User;
 import com.schoolproject.ChatAPP.repository.UserRepository;
 import com.schoolproject.ChatAPP.requests.LoginRequest;
 import com.schoolproject.ChatAPP.requests.SignUpRequest;
+import com.schoolproject.ChatAPP.service.LoginRateLimiter;
 import com.schoolproject.ChatAPP.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,8 @@ class AuthControllerTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    private LoginRateLimiter loginRateLimiter;
+
     @InjectMocks
     private AuthController authController;
 
@@ -48,8 +51,18 @@ class AuthControllerTest {
 
     @BeforeEach
     void setUp() {
+        loginRateLimiter = new LoginRateLimiter();
+        ReflectionTestUtils.setField(loginRateLimiter, "maxLoginAttemptsPerEmail", 3);
+        ReflectionTestUtils.setField(loginRateLimiter, "maxLoginAttemptsPerIp", 10);
+        ReflectionTestUtils.setField(loginRateLimiter, "windowMs", 60_000L);
+
+        ReflectionTestUtils.setField(authController, "loginRateLimiter", loginRateLimiter);
         ReflectionTestUtils.setField(authController, "cookieSecure", false);
         ReflectionTestUtils.setField(authController, "cookieSameSite", "Lax");
+
+        lenient().when(jwtUtil.getCookieName()).thenReturn("jwt");
+        lenient().when(jwtUtil.getExpirationTimeMs()).thenReturn(86400000L);
+
         mockMvc = MockMvcBuilders.standaloneSetup(authController).build();
     }
 
@@ -82,7 +95,7 @@ class AuthControllerTest {
     }
 
     @Test
-    void testSignupDuplicateEmail() throws Exception {
+    void testSignupDuplicateEmailReturnsConflict() throws Exception {
         SignUpRequest request = new SignUpRequest("existing@test.com", "password123");
         User existingUser = new User();
         existingUser.setEmail("existing@test.com");
@@ -91,7 +104,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Email already exists."));
 
         verify(userRepository, never()).save(any(User.class));
@@ -128,9 +141,8 @@ class AuthControllerTest {
     }
 
     @Test
-    void testLoginWrongPassword() throws Exception {
-        LoginRequest request = new LoginRequest("user@test.com", "wrongPass");
-
+    void testLoginWrongPasswordAndUnknownUserReturnConsistentUnauthorizedError() throws Exception {
+        LoginRequest wrongPassReq = new LoginRequest("user@test.com", "wrongPass");
         User user = new User();
         user.setEmail("user@test.com");
         user.setPassword("hashedSecret");
@@ -140,21 +152,41 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Password is incorrect."));
-    }
+                        .content(objectMapper.writeValueAsString(wrongPassReq)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Invalid email or password."));
 
-    @Test
-    void testLoginUserNotFound() throws Exception {
-        LoginRequest request = new LoginRequest("nobody@test.com", "anyPass");
+        LoginRequest unknownReq = new LoginRequest("nobody@test.com", "anyPass");
         when(userRepository.findByEmail("nobody@test.com")).thenReturn(Optional.empty());
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(unknownReq)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Invalid email or password."));
+    }
+
+    @Test
+    void testLoginRateLimitingBlocksAfterMaxFailedAttempts() throws Exception {
+        LoginRequest request = new LoginRequest("victim@test.com", "wrongPass");
+        when(userRepository.findByEmail("victim@test.com")).thenReturn(Optional.empty());
+
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/auth/login")
+                            .header("X-Forwarded-For", "203.0.113.10")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        // 4th attempt should be rate limited with 429 and Retry-After header
+        mockMvc.perform(post("/api/auth/login")
+                        .header("X-Forwarded-For", "203.0.113.10")
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("User not found."));
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.message").value("Too many login attempts. Please try again later."));
     }
 
     @Test

@@ -1,36 +1,40 @@
 package com.schoolproject.ChatAPP;
 
+import com.schoolproject.ChatAPP.repository.AttachmentRepository;
 import com.schoolproject.ChatAPP.repository.ChannelRepository;
 import com.schoolproject.ChatAPP.repository.MessageRepository;
 import com.schoolproject.ChatAPP.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest(properties = {
         "spring.data.mongodb.uri=mongodb://localhost:27017/test_chat_app",
-        "jwt.secret=test-secret-key-that-is-at-least-32-characters-long"
+        "spring.data.mongodb.auto-index-creation=false",
+        "jwt.secret=test-secret-key-for-spring-context-at-least-32-chars!"
 })
 class ChatAppApplicationTests {
 
-    @MockBean
+    @MockitoBean
     private MongoTemplate mongoTemplate;
 
-    @MockBean
+    @MockitoBean
     private org.springframework.data.mongodb.gridfs.GridFsTemplate gridFsTemplate;
 
-    @MockBean
+    @MockitoBean
     private UserRepository userRepository;
 
-    @MockBean
+    @MockitoBean
     private MessageRepository messageRepository;
 
-    @MockBean
+    @MockitoBean
     private ChannelRepository channelRepository;
+
+    @MockitoBean
+    private AttachmentRepository attachmentRepository;
 
     @Test
     void contextLoads() {
     }
-
 }

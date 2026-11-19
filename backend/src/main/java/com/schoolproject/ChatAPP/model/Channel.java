@@ -2,6 +2,9 @@ package com.schoolproject.ChatAPP.model;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.DBRef;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -10,6 +13,10 @@ import java.util.Date;
 import java.util.List;
 
 @Document(collection = "channels") // MongoDB collection name
+@CompoundIndexes({
+        @CompoundIndex(name = "channel_admin_idx", def = "{'admin.$id': 1, 'updatedAt': -1}"),
+        @CompoundIndex(name = "channel_members_idx", def = "{'members.$id': 1, 'updatedAt': -1}")
+})
 public class Channel {
 
     @Id

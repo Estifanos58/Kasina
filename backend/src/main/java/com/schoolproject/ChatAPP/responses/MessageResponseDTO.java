@@ -1,7 +1,7 @@
 package com.schoolproject.ChatAPP.responses;
 
 import com.schoolproject.ChatAPP.model.Message;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 public class MessageResponseDTO {
     private String id;
@@ -10,17 +10,18 @@ public class MessageResponseDTO {
     private String messageType;
     private String content;
     private String fileUrl;
-    private LocalDateTime timestamps;
+    private Instant timestamps;
     private String channelId;
     private String senderName;
     private int color;
     private String image;
+    private String clientMessageId;
 
     public MessageResponseDTO() {}
 
     public MessageResponseDTO(String id, String sender, String recipient, String messageType, String content,
-                              String fileUrl, LocalDateTime timestamps, String channelId, String senderName,
-                              int color, String image) {
+                              String fileUrl, Instant timestamps, String channelId, String senderName,
+                              int color, String image, String clientMessageId) {
         this.id = id;
         this.sender = sender;
         this.recipient = recipient;
@@ -32,6 +33,7 @@ public class MessageResponseDTO {
         this.senderName = senderName;
         this.color = color;
         this.image = image;
+        this.clientMessageId = clientMessageId;
     }
 
     public static MessageResponseDTO fromEntity(Message msg) {
@@ -49,7 +51,8 @@ public class MessageResponseDTO {
                 msg.getChannelId(),
                 msg.getSenderName(),
                 msg.getColor(),
-                msg.getImage()
+                msg.getImage(),
+                msg.getClientMessageId()
         );
     }
 
@@ -101,11 +104,11 @@ public class MessageResponseDTO {
         this.fileUrl = fileUrl;
     }
 
-    public LocalDateTime getTimestamps() {
+    public Instant getTimestamps() {
         return timestamps;
     }
 
-    public void setTimestamps(LocalDateTime timestamps) {
+    public void setTimestamps(Instant timestamps) {
         this.timestamps = timestamps;
     }
 
@@ -139,5 +142,13 @@ public class MessageResponseDTO {
 
     public void setImage(String image) {
         this.image = image;
+    }
+
+    public String getClientMessageId() {
+        return clientMessageId;
+    }
+
+    public void setClientMessageId(String clientMessageId) {
+        this.clientMessageId = clientMessageId;
     }
 }

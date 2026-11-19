@@ -1,28 +1,28 @@
 package com.schoolproject.ChatAPP.responses;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 
 public class ErrorResponse {
     private int status;
     private String message;
-    private LocalDateTime timestamp;
+    private Instant timestamp;
     private Map<String, String> errors;
 
     public ErrorResponse() {
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = Instant.now();
     }
 
     public ErrorResponse(int status, String message) {
         this.status = status;
         this.message = message;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = Instant.now();
     }
 
     public ErrorResponse(int status, String message, Map<String, String> errors) {
         this.status = status;
         this.message = message;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = Instant.now();
         this.errors = errors;
     }
 
@@ -42,11 +42,11 @@ public class ErrorResponse {
         this.message = message;
     }
 
-    public LocalDateTime getTimestamp() {
+    public Instant getTimestamp() {
         return timestamp;
     }
 
-    public void setTimestamp(LocalDateTime timestamp) {
+    public void setTimestamp(Instant timestamp) {
         this.timestamp = timestamp;
     }
 

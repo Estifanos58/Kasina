@@ -45,7 +45,9 @@ public class UserPrincipal implements UserDetails, Principal {
 
     @Override
     public String getUsername() {
-        return email;
+        // Must return userId so Spring Security's AbstractAuthenticationToken#getName()
+        // and Spring Messaging's /user/{userId}/queue/* routing resolve consistently by userId.
+        return userId;
     }
 
     @Override

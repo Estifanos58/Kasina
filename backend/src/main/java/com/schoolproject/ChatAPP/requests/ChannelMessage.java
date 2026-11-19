@@ -1,12 +1,28 @@
 package com.schoolproject.ChatAPP.requests;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
 public class ChannelMessage {
     private String sender;
     private String senderName;
+
+    @NotBlank(message = "Channel ID is required")
     private String channelId;
+
+    @Size(max = 5000, message = "Message content cannot exceed 5000 characters")
     private String content;
+
+    @NotBlank(message = "Message type is required")
+    @Pattern(regexp = "^(text|file)$", message = "Message type must be 'text' or 'file'")
     private String messageType;
+
+    @Size(max = 1024, message = "File URL is too long")
     private String fileUrl;
+
+    @Size(max = 128, message = "Client message ID is too long")
+    private String clientMessageId;
 
     public ChannelMessage() {}
 
@@ -78,5 +94,13 @@ public class ChannelMessage {
 
     public void setFileUrl(String fileUrl) {
         this.fileUrl = fileUrl;
+    }
+
+    public String getClientMessageId() {
+        return clientMessageId;
+    }
+
+    public void setClientMessageId(String clientMessageId) {
+        this.clientMessageId = clientMessageId;
     }
 }

@@ -18,33 +18,61 @@ public class WebSocketSessionManager {
     private final ConcurrentHashMap<String, String> sessionToUser = new ConcurrentHashMap<>();
 
     public void addSession(String userId, String sessionId) {
-        if (userId == null || sessionId == null) return;
-        userSessions.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
-        sessionToUser.put(sessionId, userId);
+        if (userId == null || userId.isBlank() || sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        String previousUser = sessionToUser.put(sessionId, userId);
+        if (previousUser != null && !previousUser.equals(userId)) {
+            removeSessionFromUserMap(previousUser, sessionId);
+        }
+        userSessions.compute(userId, (key, existing) -> {
+            Set<String> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+            set.add(sessionId);
+            return set;
+        });
         logger.debug("Session added: user={} session={}", userId, sessionId);
     }
 
-    public void removeSession(String sessionId) {
-        if (sessionId == null) return;
+    public String removeSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
         String userId = sessionToUser.remove(sessionId);
         if (userId != null) {
-            Set<String> sessions = userSessions.get(userId);
-            if (sessions != null) {
-                sessions.remove(sessionId);
-                if (sessions.isEmpty()) {
-                    userSessions.remove(userId);
-                }
-            }
+            removeSessionFromUserMap(userId, sessionId);
             logger.debug("Session removed: user={} session={}", userId, sessionId);
         }
+        return userId;
+    }
+
+    private void removeSessionFromUserMap(String userId, String sessionId) {
+        userSessions.computeIfPresent(userId, (key, sessions) -> {
+            sessions.remove(sessionId);
+            return sessions.isEmpty() ? null : sessions;
+        });
     }
 
     public Set<String> getSessions(String userId) {
-        if (userId == null) return Collections.emptySet();
-        return userSessions.getOrDefault(userId, Collections.emptySet());
+        if (userId == null) {
+            return Collections.emptySet();
+        }
+        Set<String> sessions = userSessions.get(userId);
+        return sessions != null ? Collections.unmodifiableSet(sessions) : Collections.emptySet();
     }
 
     public boolean isUserOnline(String userId) {
-        return userId != null && userSessions.containsKey(userId) && !userSessions.get(userId).isEmpty();
+        if (userId == null) {
+            return false;
+        }
+        Set<String> sessions = userSessions.get(userId);
+        return sessions != null && !sessions.isEmpty();
+    }
+
+    public int getActiveSessionCount() {
+        return sessionToUser.size();
+    }
+
+    public int getOnlineUserCount() {
+        return userSessions.size();
     }
 }

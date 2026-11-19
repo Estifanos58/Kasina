@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useAppStore } from "@/store";
 import { useSocket } from "@/context/SocketContext";
 import { LOGOUT_ROUTE } from "@/utils/constants";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, clearCsrfToken, extractApiErrorMessage } from "@/lib/api-client";
 import { getDisplayName } from "@/lib/utils";
 import UserAvatar from "@/components/user-avatar";
 import {
@@ -15,25 +15,22 @@ import {
 } from "@/components/ui/tooltip";
 
 const ProfileInfo = () => {
-  const { userInfo, setUserInfo, closedChat } = useAppStore();
+  const { userInfo, setUserInfo, resetChatState } = useAppStore();
   const socket = useSocket();
   const navigate = useNavigate();
 
   const logOut = async () => {
     try {
-      const response = await apiClient.post(
-        LOGOUT_ROUTE,
-        { userId: userInfo?.id },
-        { withCredentials: true }
-      );
+      const response = await apiClient.post(LOGOUT_ROUTE, {});
       if (response.status === 200) {
-        closedChat();
+        clearCsrfToken();
+        resetChatState();
         setUserInfo(null);
         navigate("/auth");
       }
     } catch (err) {
-      console.error("Logout error:", err);
-      toast.error("Failed to sign out. Please try again.");
+      const msg = extractApiErrorMessage(err, "Failed to sign out. Please try again.");
+      if (msg) toast.error(msg);
     }
   };
 

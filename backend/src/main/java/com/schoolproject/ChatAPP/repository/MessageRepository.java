@@ -8,36 +8,32 @@ import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
-public interface MessageRepository extends MongoRepository<Message, String> {
+public interface MessageRepository extends MongoRepository<Message, String>, MessageRepositoryCustom {
 
-    // Find messages between two users (private chats)
-    @Query("{ '$or': [ { '$and': [ { 'sender': ?0 }, { 'recipient': ?1 } ] }, { '$and': [ { 'sender': ?1 }, { 'recipient': ?0 } ] } ] }")
+    @Query("{ 'channelId': null, '$or': [ { '$and': [ { 'sender': ?0 }, { 'recipient': ?1 } ] }, { '$and': [ { 'sender': ?1 }, { 'recipient': ?0 } ] } ] }")
     List<Message> findMessagesBetweenUsers(String senderId, String recipientId);
 
-    // Find messages for a specific channel
     @Query("{ 'recipient': null, 'channelId': ?0 }")
     List<Message> findMessagesByChannelId(String channelId);
 
-    // Find all messages in a channel ordered by timestamps ascending
     List<Message> findByChannelIdOrderByTimestampsAsc(String channelId);
 
-    // Find all messages in a channel ordered with pagination
     Page<Message> findByChannelIdOrderByTimestampsAsc(String channelId, Pageable pageable);
 
-    // Find all messages sent by a specific user
     List<Message> findBySender(String senderId);
 
-    // Find all messages received by a specific user
     List<Message> findByRecipient(String recipientId);
 
-    // Find messages between two users, ordered by timestamp
     List<Message> findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(String sender1, String recipient1, String sender2, String recipient2);
 
-    // Find messages between two users, with pagination
     Page<Message> findBySenderAndRecipientOrRecipientAndSenderOrderByTimestamps(String sender1, String recipient1, String sender2, String recipient2, Pageable pageable);
 
-    // Find messages where sender or recipient matches, ordered by timestamps descending
     List<Message> findBySenderOrRecipientOrderByTimestampsDesc(String sender, String recipient);
+
+    Optional<Message> findBySenderAndClientMessageId(String sender, String clientMessageId);
+
+    List<Message> findByFileUrl(String fileUrl);
 }

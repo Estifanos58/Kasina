@@ -1,12 +1,22 @@
 package com.schoolproject.ChatAPP.controllers;
 
 import com.schoolproject.ChatAPP.config.UserPrincipal;
+import com.schoolproject.ChatAPP.model.Attachment;
+import com.schoolproject.ChatAPP.model.Channel;
+import com.schoolproject.ChatAPP.model.Message;
+import com.schoolproject.ChatAPP.repository.AttachmentRepository;
+import com.schoolproject.ChatAPP.repository.ChannelRepository;
+import com.schoolproject.ChatAPP.repository.MessageRepository;
 import com.schoolproject.ChatAPP.responses.ErrorResponse;
+import com.schoolproject.ChatAPP.service.FileValidationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -17,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,69 +42,96 @@ public class FileController {
     @Value("${file.upload-dir:uploads/files}")
     private String uploadDir;
 
-    private static final Set<String> DISALLOWED_EXTENSIONS = Set.of(
-            "exe", "bat", "cmd", "sh", "php", "jsp", "asp", "aspx", "jar", "war", "py", "pl", "vbs", "html", "htm", "js", "msi"
-    );
+    @Autowired
+    private FileValidationService fileValidationService;
+
+    @Autowired
+    private AttachmentRepository attachmentRepository;
+
+    @Autowired
+    private MessageRepository messageRepository;
+
+    @Autowired
+    private ChannelRepository channelRepository;
 
     @PostMapping("/api/messages/upload-file")
     public ResponseEntity<?> uploadFile(
             @AuthenticationPrincipal UserPrincipal principal,
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "recipientId", required = false) String recipientId,
+            @RequestParam(value = "channelId", required = false) String channelId) {
 
         if (principal == null || principal.getUserId() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
 
-        if (file == null || file.isEmpty()) {
+        String userId = principal.getUserId();
+
+        // If targeting a channel, verify membership before accepting upload
+        String normalizedChannelId = (channelId != null && !channelId.isBlank()) ? channelId.trim() : null;
+        String normalizedRecipientId = (recipientId != null && !recipientId.isBlank()) ? recipientId.trim() : null;
+
+        if (normalizedChannelId != null && !isChannelMember(normalizedChannelId, userId)) {
+            logger.warn("User {} attempted to upload attachment to unauthorized channel {}", userId, normalizedChannelId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "You are not a member of this channel"));
+        }
+
+        FileValidationService.ValidatedFile validated;
+        try {
+            validated = fileValidationService.validate(file);
+        } catch (IllegalArgumentException e) {
+            logger.warn("User {} file upload rejected: {}", userId, e.getMessage());
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "File is required and cannot be empty"));
-        }
-
-        String rawOriginalFilename = file.getOriginalFilename();
-        if (rawOriginalFilename == null || rawOriginalFilename.trim().isEmpty()) {
-            rawOriginalFilename = "attachment";
-        }
-
-        // Sanitize filename: strip paths, allow only safe characters
-        String cleanOriginalName = Paths.get(rawOriginalFilename).getFileName().toString();
-        cleanOriginalName = cleanOriginalName.replaceAll("[^a-zA-Z0-9._-]", "_");
-
-        // Validate extension
-        String extension = "";
-        int dotIndex = cleanOriginalName.lastIndexOf('.');
-        if (dotIndex > 0) {
-            extension = cleanOriginalName.substring(dotIndex + 1).toLowerCase();
-        }
-
-        if (DISALLOWED_EXTENSIONS.contains(extension)) {
-            logger.warn("User {} attempted to upload disallowed file type: {}", principal.getUserId(), extension);
-            return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "File type not permitted for upload"));
+                    .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
+        } catch (IOException e) {
+            logger.error("Failed to inspect uploaded file", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to process uploaded file"));
         }
 
         try {
             String dateDir = String.valueOf(System.currentTimeMillis());
-            Path targetDir = Paths.get(uploadDir, dateDir).normalize().toAbsolutePath();
+            Path baseDir = Paths.get(uploadDir).normalize().toAbsolutePath();
+            Path targetDir = baseDir.resolve(dateDir).normalize();
+            if (!targetDir.startsWith(baseDir)) {
+                return ResponseEntity.badRequest()
+                        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Invalid file destination"));
+            }
             Files.createDirectories(targetDir);
 
-            String uniqueFilename = UUID.randomUUID().toString() + "_" + cleanOriginalName;
+            String uniqueFilename = UUID.randomUUID() + "_" + validated.getSanitizedFilename();
             Path targetPath = targetDir.resolve(uniqueFilename).normalize();
 
-            // Prevent path traversal
             if (!targetPath.startsWith(targetDir)) {
                 return ResponseEntity.badRequest()
                         .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Invalid file destination"));
             }
 
             Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
-            logger.info("File uploaded successfully by user {}: {}", principal.getUserId(), uniqueFilename);
 
-            // Construct relative web-accessible URL
             String relativeUrl = "uploads/files/" + dateDir + "/" + uniqueFilename;
+
+            Attachment attachment = new Attachment(
+                    relativeUrl,
+                    validated.getSanitizedFilename(),
+                    uniqueFilename,
+                    validated.getMimeType(),
+                    file.getSize(),
+                    userId,
+                    normalizedChannelId == null ? normalizedRecipientId : null,
+                    normalizedChannelId
+            );
+            attachmentRepository.save(attachment);
+
+            logger.info("File uploaded successfully by user {}: {} ({})", userId, uniqueFilename, validated.getMimeType());
 
             Map<String, Object> response = new HashMap<>();
             response.put("filePath", relativeUrl);
+            response.put("fileName", validated.getSanitizedFilename());
+            response.put("contentType", validated.getMimeType());
+            response.put("size", file.getSize());
             response.put("message", "File uploaded successfully");
             return ResponseEntity.ok(response);
 
@@ -104,63 +142,153 @@ public class FileController {
         }
     }
 
-    // Serve / download files
-    @GetMapping({"/uploads/files/{dateDir}/{fileName:.+}", "/api/messages/download-file"})
-    public ResponseEntity<Resource> serveFile(
+    @GetMapping({
+            "/uploads/files/{dateDir}/{fileName:.+}",
+            "/api/messages/file/{dateDir}/{fileName:.+}",
+            "/api/messages/download-file"
+    })
+    public ResponseEntity<?> serveFile(
+            @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable(value = "dateDir", required = false) String pathDateDir,
             @PathVariable(value = "fileName", required = false) String pathFileName,
             @RequestParam(value = "path", required = false) String queryPath) {
+
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
+        }
 
         String dateDir = pathDateDir;
         String fileName = pathFileName;
 
         if (queryPath != null && !queryPath.trim().isEmpty()) {
-            // Strip leading slashes or "uploads/files/"
             String clean = queryPath.replace("\\", "/").replaceAll("^/+", "");
+            if (clean.contains("..")) {
+                return ResponseEntity.badRequest()
+                        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Invalid file path"));
+            }
             if (clean.startsWith("uploads/files/")) {
                 clean = clean.substring("uploads/files/".length());
             }
             String[] parts = clean.split("/");
-            if (parts.length >= 2) {
-                dateDir = parts[0];
-                fileName = parts[parts.length - 1];
+            if (parts.length != 2) {
+                return ResponseEntity.badRequest()
+                        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Invalid file path"));
             }
+            dateDir = parts[0];
+            fileName = parts[1];
         }
 
-        if (dateDir == null || fileName == null || dateDir.contains("..") || fileName.contains("..")) {
-            return ResponseEntity.badRequest().build();
+        if (isInvalidSegment(dateDir) || isInvalidSegment(fileName)) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Invalid file path"));
+        }
+
+        String canonicalRelativePath = "uploads/files/" + dateDir + "/" + fileName;
+        String userId = principal.getUserId();
+
+        Optional<Attachment> attachmentOpt = attachmentRepository.findByFilePath(canonicalRelativePath);
+        List<Message> linkedMessages = messageRepository.findByFileUrl(canonicalRelativePath);
+
+        if (!isUserAuthorizedForFile(userId, attachmentOpt.orElse(null), linkedMessages)) {
+            logger.warn("User {} denied access to private attachment {}", userId, canonicalRelativePath);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Not authorized to access this attachment"));
         }
 
         try {
             Path baseDirPath = Paths.get(uploadDir).normalize().toAbsolutePath();
             Path filePath = baseDirPath.resolve(dateDir).resolve(fileName).normalize();
 
-            // Check that the resolved path is within baseDirPath
             if (!filePath.startsWith(baseDirPath) || !Files.exists(filePath) || !Files.isReadable(filePath)) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Attachment not found"));
             }
 
             Resource resource = new UrlResource(filePath.toUri());
             if (!resource.exists()) {
-                return ResponseEntity.notFound().build();
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(new ErrorResponse(HttpStatus.NOT_FOUND.value(), "Attachment not found"));
             }
 
-            String contentType = null;
-            try {
-                contentType = Files.probeContentType(filePath);
-            } catch (IOException ignored) {}
+            String contentType = attachmentOpt
+                    .map(Attachment::getContentType)
+                    .filter(ct -> ct != null && !ct.isBlank())
+                    .orElse("application/octet-stream");
 
-            if (contentType == null) {
-                contentType = "application/octet-stream";
-            }
+            String downloadName = attachmentOpt
+                    .map(Attachment::getOriginalFileName)
+                    .filter(n -> n != null && !n.isBlank())
+                    .orElse(resource.getFilename() != null ? resource.getFilename() : "attachment");
+
+            boolean inlineSafe = fileValidationService.isInlineSafe(contentType);
+            ContentDisposition disposition = (inlineSafe ? ContentDisposition.inline() : ContentDisposition.attachment())
+                    .filename(downloadName, StandardCharsets.UTF_8)
+                    .build();
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                    .cacheControl(CacheControl.noStore().cachePrivate())
+                    .header("X-Content-Type-Options", "nosniff")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                     .body(resource);
 
         } catch (MalformedURLException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed to read attachment"));
         }
+    }
+
+    private boolean isInvalidSegment(String segment) {
+        return segment == null
+                || segment.isBlank()
+                || segment.contains("..")
+                || segment.contains("/")
+                || segment.contains("\\");
+    }
+
+    private boolean isUserAuthorizedForFile(String userId, Attachment attachment, List<Message> linkedMessages) {
+        // 1. Check authorization via messages referencing this attachment
+        if (linkedMessages != null && !linkedMessages.isEmpty()) {
+            for (Message msg : linkedMessages) {
+                if (msg == null) continue;
+                if (msg.getChannelId() != null && !msg.getChannelId().isBlank()) {
+                    if (isChannelMember(msg.getChannelId(), userId)) {
+                        return true;
+                    }
+                } else {
+                    if (userId.equals(msg.getSender()) || userId.equals(msg.getRecipient())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 2. Fallback to Attachment metadata (e.g., pending upload before message send or bound on upload)
+        if (attachment != null) {
+            if (attachment.getChannelId() != null && !attachment.getChannelId().isBlank()) {
+                return isChannelMember(attachment.getChannelId(), userId);
+            }
+            if (userId.equals(attachment.getUploaderId())) {
+                return true;
+            }
+            if (attachment.getRecipientId() != null && userId.equals(attachment.getRecipientId())) {
+                return true;
+            }
+        }
+
+        // 3. Untracked file on disk: deny by default
+        return false;
+    }
+
+    private boolean isChannelMember(String channelId, String userId) {
+        Optional<Channel> channelOpt = channelRepository.findById(channelId);
+        if (channelOpt.isEmpty()) {
+            return false;
+        }
+        Channel channel = channelOpt.get();
+        return (channel.getAdmin() != null && userId.equals(channel.getAdmin().getId()))
+                || (channel.getMembers() != null && channel.getMembers().stream().anyMatch(m -> m != null && userId.equals(m.getId())));
     }
 }

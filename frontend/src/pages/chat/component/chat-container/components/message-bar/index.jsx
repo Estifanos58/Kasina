@@ -4,7 +4,7 @@ import { ArrowUp, Paperclip, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/store";
 import { useSocket } from "@/context/SocketContext";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import { UPLOAD_FILE_ROUTE } from "@/utils/constants";
 import { cn, getDisplayName } from "@/lib/utils";
 import {
@@ -13,6 +13,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+const ALLOWED_FILE_ACCEPT =
+  ".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.md,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.mp3,.wav,.ogg,.mp4,.m4a,.webm";
 
 const MessageBar = () => {
   const [message, setMessage] = useState("");
@@ -25,6 +28,7 @@ const MessageBar = () => {
     selectedChatType,
     selectedChatData,
     userInfo,
+    isUploading,
     setIsUploading,
     setFileUploadProgress,
   } = useAppStore();
@@ -36,15 +40,31 @@ const MessageBar = () => {
         setEmojiPickerOpen(false);
       }
     };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setEmojiPickerOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
+    setEmojiPickerOpen(false);
   }, [selectedChatData?.id]);
+
+  // Auto-resize textarea height cleanly up to ~4 lines
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [message]);
 
   const handleAddEmoji = (emoji) => {
     setMessage((msg) => msg + emoji.emoji);
@@ -54,50 +74,68 @@ const MessageBar = () => {
   const handleSendMessage = (e) => {
     if (e) e.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed) return;
-
-    const payload = {
-      sender: userInfo.id,
-      content: trimmed,
-      recipient: selectedChatData.id,
-      messageType: "text",
-      fileUrl: undefined,
-    };
+    if (!trimmed || !selectedChatData?.id || !userInfo?.id) return;
 
     if (selectedChatType === "contact") {
-      socket?.sendMessage({
-        ...payload,
-        recipient: selectedChatData.id,
-      });
+      socket?.sendMessage(
+        {
+          content: trimmed,
+          recipient: selectedChatData.id,
+          messageType: "text",
+        },
+        "contact"
+      );
     } else if (selectedChatType === "channel") {
-      socket?.sendMessage({
-        ...payload,
-        channelId: selectedChatData.id,
-        recipient: null,
-      });
+      socket?.sendMessage(
+        {
+          content: trimmed,
+          channelId: selectedChatData.id,
+          messageType: "text",
+        },
+        "channel"
+      );
     }
 
     setMessage("");
     setEmojiPickerOpen(false);
   };
 
+  const handleInputKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
   const handleAttachmentClick = () => {
+    if (isUploading) return;
     fileInputRef.current?.click();
   };
 
   const handleAttachmentChange = async (event) => {
+    const targetChatType = selectedChatType;
+    const targetChatId = selectedChatData?.id;
     try {
       const file = event.target.files?.[0];
-      if (!file) return;
+      if (!file || !targetChatId) return;
+
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error("File size exceeds the 20MB limit.");
+        return;
+      }
 
       const formData = new FormData();
       formData.append("file", file);
+      if (targetChatType === "contact") {
+        formData.append("recipientId", targetChatId);
+      } else if (targetChatType === "channel") {
+        formData.append("channelId", targetChatId);
+      }
 
       setIsUploading(true);
       setFileUploadProgress(0);
 
       const response = await apiClient.post(UPLOAD_FILE_ROUTE, formData, {
-        withCredentials: true,
         onUploadProgress: (data) => {
           if (data.total) {
             setFileUploadProgress(Math.round((100 * data.loaded) / data.total));
@@ -105,31 +143,33 @@ const MessageBar = () => {
         },
       });
 
-      if (response.status === 200 && response.data) {
-        const payload = {
-          sender: userInfo.id,
-          content: undefined,
-          fileUrl: response.data.filePath,
-          messageType: "file",
-        };
-
-        if (selectedChatType === "contact") {
-          socket?.sendMessage({
-            ...payload,
-            recipient: selectedChatData.id,
-          });
-        } else if (selectedChatType === "channel") {
-          socket?.sendMessage({
-            ...payload,
-            channelId: selectedChatData.id,
-          });
+      if (response.status === 200 && response.data?.filePath) {
+        if (targetChatType === "contact") {
+          socket?.sendMessage(
+            {
+              fileUrl: response.data.filePath,
+              messageType: "file",
+              recipient: targetChatId,
+            },
+            "contact"
+          );
+        } else if (targetChatType === "channel") {
+          socket?.sendMessage(
+            {
+              fileUrl: response.data.filePath,
+              messageType: "file",
+              channelId: targetChatId,
+            },
+            "channel"
+          );
         }
       }
     } catch (error) {
-      console.error("File upload error:", error);
-      toast.error(
-        error?.response?.data?.message || "Failed to upload attachment."
+      const errMsg = extractApiErrorMessage(
+        error,
+        "Failed to upload attachment."
       );
+      if (errMsg) toast.error(errMsg);
     } finally {
       setIsUploading(false);
       setFileUploadProgress(0);
@@ -150,7 +190,7 @@ const MessageBar = () => {
     <div className="shrink-0 px-4 sm:px-6 lg:px-8 pb-4 pt-2 bg-[#0B0C0E]">
       <form
         onSubmit={handleSendMessage}
-        className="max-w-4xl mx-auto flex items-center gap-2 rounded-2xl border border-white/[0.09] bg-[#13151B] px-2.5 py-2 transition-colors focus-within:border-white/[0.18]"
+        className="max-w-4xl mx-auto flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-[#13151B] px-2.5 py-2 transition-colors focus-within:border-white/[0.18]"
       >
         <TooltipProvider delayDuration={250}>
           <Tooltip>
@@ -158,8 +198,9 @@ const MessageBar = () => {
               <button
                 type="button"
                 onClick={handleAttachmentClick}
+                disabled={isUploading}
                 aria-label="Attach file"
-                className="h-9 w-9 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-colors shrink-0"
+                className="h-9 w-9 rounded-xl flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06] transition-colors shrink-0 disabled:opacity-40"
               >
                 <Paperclip className="h-[18px] w-[18px]" />
               </button>
@@ -172,17 +213,20 @@ const MessageBar = () => {
           type="file"
           className="hidden"
           ref={fileInputRef}
+          accept={ALLOWED_FILE_ACCEPT}
           onChange={handleAttachmentChange}
         />
 
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={1}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleInputKeyDown}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="flex-1 min-w-0 bg-transparent px-1.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+          maxLength={5000}
+          className="flex-1 min-w-0 max-h-[120px] resize-none bg-transparent px-1.5 py-1.5 text-sm leading-snug text-zinc-100 placeholder:text-zinc-500 outline-none"
         />
 
         <div className="relative shrink-0" ref={emojiRef}>
@@ -193,6 +237,7 @@ const MessageBar = () => {
                   type="button"
                   onClick={() => setEmojiPickerOpen((open) => !open)}
                   aria-label="Insert emoji"
+                  aria-expanded={emojiPickerOpen}
                   className={cn(
                     "h-9 w-9 rounded-xl flex items-center justify-center transition-colors",
                     emojiPickerOpen

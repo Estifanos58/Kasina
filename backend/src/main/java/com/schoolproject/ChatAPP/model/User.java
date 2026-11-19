@@ -3,14 +3,10 @@ package com.schoolproject.ChatAPP.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
-//import lombok.Data;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-import java.util.Arrays;
-
-
-//@Data
 @Document(collection = "users")
 public class User {
 
@@ -25,14 +21,17 @@ public class User {
     private String id;
 
     @NotBlank(message = "Email is required")
+    @Indexed(unique = true)
     private String email;
 
     @NotBlank(message = "Password is required")
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
+    @Indexed
     private String firstname;
 
+    @Indexed
     private String lastname;
     private int color;
     private String image;

@@ -70,13 +70,29 @@ public class UserController {
         }
 
         User user = userOptional.get();
-        user.setFirstname(profileRequest.getFirstname());
-        user.setLastname(profileRequest.getLastname());
+        user.setFirstname(profileRequest.getFirstname().trim());
+        user.setLastname(profileRequest.getLastname().trim());
         user.setColor(profileRequest.getColor());
         user.setProfileSetup(true);
 
         if (profileRequest.getImage() != null && !profileRequest.getImage().isEmpty()) {
-            user.setImage(profileRequest.getImage());
+            String img = profileRequest.getImage().trim();
+            if (img.length() > 2_000_000) {
+                return ResponseEntity.badRequest()
+                        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Profile image is too large"));
+            }
+            String lowerImg = img.toLowerCase();
+            boolean validDataUrl = lowerImg.startsWith("data:image/png;base64,")
+                    || lowerImg.startsWith("data:image/jpeg;base64,")
+                    || lowerImg.startsWith("data:image/jpg;base64,")
+                    || lowerImg.startsWith("data:image/webp;base64,")
+                    || lowerImg.startsWith("data:image/gif;base64,");
+            boolean validUploadPath = img.startsWith("uploads/files/") && !img.contains("..");
+            if (!validDataUrl && !validUploadPath) {
+                return ResponseEntity.badRequest()
+                        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Unsupported profile image format"));
+            }
+            user.setImage(img);
         }
 
         User updatedUser = userRepository.save(user);

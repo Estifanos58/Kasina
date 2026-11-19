@@ -2,8 +2,8 @@ package com.schoolproject.ChatAPP.controllers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.schoolproject.ChatAPP.config.UserPrincipal;
-import com.schoolproject.ChatAPP.model.Message;
 import com.schoolproject.ChatAPP.model.User;
+import com.schoolproject.ChatAPP.repository.DmContactSummary;
 import com.schoolproject.ChatAPP.repository.MessageRepository;
 import com.schoolproject.ChatAPP.repository.UserRepository;
 import com.schoolproject.ChatAPP.requests.SearchRequest;
@@ -14,6 +14,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,12 +24,14 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -74,21 +77,14 @@ class ContactControllerTest {
     }
 
     @Test
-    void testDmListFullTimestampOrdering() throws Exception {
-        // me-1 communicated with user-A (today at 08:00 AM) and user-B (yesterday at 23:00 PM).
-        // With previous bug (.toLocalTime()), 23:00 would sort BEFORE 08:00 despite being yesterday!
-        // With our fix, today at 08:00 MUST sort BEFORE yesterday at 23:00!
-        LocalDateTime todayMorning = LocalDateTime.of(2026, 11, 17, 8, 0, 0);
-        LocalDateTime yesterdayNight = LocalDateTime.of(2026, 11, 16, 23, 0, 0);
+    void testDmListUsesAggregationAndFullUtcTimestampOrdering() throws Exception {
+        Instant todayMorning = Instant.parse("2026-11-17T08:00:00Z");
+        Instant yesterdayNight = Instant.parse("2026-11-16T23:00:00Z");
 
-        Message msgA = new Message("me-1", "user-A", "text", "Good morning", null);
-        msgA.setTimestamps(todayMorning);
-
-        Message msgB = new Message("me-1", "user-B", "text", "Good night", null);
-        msgB.setTimestamps(yesterdayNight);
-
-        when(messageRepository.findBySenderOrRecipientOrderByTimestampsDesc("me-1", "me-1"))
-                .thenReturn(List.of(msgA, msgB));
+        when(messageRepository.findRecentDmContacts("me-1", 100)).thenReturn(List.of(
+                new DmContactSummary("user-A", todayMorning),
+                new DmContactSummary("user-B", yesterdayNight)
+        ));
 
         User userA = new User("user-A");
         userA.setEmail("a@example.com");
@@ -106,10 +102,12 @@ class ContactControllerTest {
                 .andExpect(jsonPath("$[0].firstName").value("Alice"))
                 .andExpect(jsonPath("$[1].id").value("user-B"))
                 .andExpect(jsonPath("$[1].firstName").value("Bob"));
+
+        verify(messageRepository, never()).findBySenderOrRecipientOrderByTimestampsDesc(any(), any());
     }
 
     @Test
-    void testSearchContactsExcludesPassword() throws Exception {
+    void testSearchContactsExcludesPasswordAndUsesBoundedPageable() throws Exception {
         SearchRequest request = new SearchRequest();
         request.setSearchTerm("John");
 
@@ -120,7 +118,7 @@ class ContactControllerTest {
         john.setLastname("Doe");
 
         when(userRepository.findByIdNotAndFirstnameRegexIgnoreCaseOrIdNotAndLastnameRegexIgnoreCaseOrIdNotAndEmailRegexIgnoreCase(
-                eq("me-1"), any(), eq("me-1"), any(), eq("me-1"), any()
+                eq("me-1"), any(), eq("me-1"), any(), eq("me-1"), any(), any(Pageable.class)
         )).thenReturn(List.of(john));
 
         mockMvc.perform(post("/api/contacts/search")

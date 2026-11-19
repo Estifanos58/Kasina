@@ -1,8 +1,21 @@
-import { useAppStore } from "@/store";
-import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import * as Stomp from "stompjs";
 import SockJS from "sockjs-client";
+import { toast } from "sonner";
+import { useAppStore } from "@/store";
 import { SOCKET_URL } from "@/utils/constants";
+import {
+  createReliableSocketManager,
+  generateClientMessageId,
+} from "@/lib/socket-manager";
+import { getConversationKey } from "@/store/slices/chat-slice";
 
 const SocketContext = createContext(null);
 
@@ -11,175 +24,185 @@ export const useSocket = () => {
 };
 
 export const SocketProvider = ({ children }) => {
-  const stompClient = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const reconnectAttemptsRef = useRef(0);
-  const isConnectingRef = useRef(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const managerRef = useRef(null);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected");
+  const [reconnectEpoch, setReconnectEpoch] = useState(0);
   const { userInfo } = useAppStore();
 
-  const handleReceiveMessage = useCallback((message) => {
-    if (!message) return;
-    const { selectedChatType, selectedChatData, addMessage, addContactsInDmContacts } =
-      useAppStore.getState();
-
-    // Check if message belongs to currently open DM
-    if (
-      selectedChatType === "contact" &&
-      selectedChatData &&
-      (selectedChatData.id === message.sender || selectedChatData.id === message.recipient)
-    ) {
-      addMessage(message);
-    }
-
-    // Always update DM contact list ordering
-    addContactsInDmContacts(message);
-  }, []);
-
-  const handleChannelReceive = useCallback((message) => {
-    if (!message) return;
-    const { selectedChatType, selectedChatData, addMessage, addChannelInChannelList } =
-      useAppStore.getState();
-
-    // Check if message belongs to currently open channel
-    if (
-      selectedChatType === "channel" &&
-      selectedChatData &&
-      selectedChatData.id === message.channelId
-    ) {
-      addMessage(message);
-    }
-
-    // Always move active channel to top of channel list
-    addChannelInChannelList(message);
-  }, []);
-
-  const connectSocket = useCallback(() => {
-    if (!userInfo || !userInfo.id || isConnectingRef.current) {
-      return;
-    }
-
-    if (stompClient.current && stompClient.current.connected) {
-      return;
-    }
-
-    isConnectingRef.current = true;
-
-    try {
-      const socket = new SockJS(SOCKET_URL);
-      const client = Stomp.over(socket);
-
-      // Disable noisy STOMP debug logs in production/development
-      client.debug = () => {};
-
-      const headers = { username: userInfo.id };
-
-      client.connect(
-        headers,
-        () => {
-          isConnectingRef.current = false;
-          setIsConnected(true);
-          reconnectAttemptsRef.current = 0;
-          stompClient.current = client;
-
-          // Subscribe to user-specific private messages
-          client.subscribe("/user/queue/messages", (message) => {
-            try {
-              handleReceiveMessage(JSON.parse(message.body));
-            } catch (err) {
-              console.error("Failed to parse direct message:", err);
-            }
-          });
-
-          // Subscribe to channel messages delivered to user queue
-          client.subscribe("/user/queue/channel-messages", (message) => {
-            try {
-              handleChannelReceive(JSON.parse(message.body));
-            } catch (err) {
-              console.error("Failed to parse channel message:", err);
-            }
-          });
-
-          // Legacy topic subscription fallback
-          client.subscribe("/topic/public", (message) => {
-            try {
-              handleReceiveMessage(JSON.parse(message.body));
-            } catch (err) {
-              console.error("Failed to parse public message:", err);
-            }
-          });
-        },
-        (_error) => {
-          isConnectingRef.current = false;
-          setIsConnected(false);
-
-          // Exponential backoff reconnect
-          const backoff = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 15000);
-          reconnectAttemptsRef.current += 1;
-
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-          }
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connectSocket();
-          }, backoff);
-        }
-      );
-    } catch (_err) {
-      isConnectingRef.current = false;
-      setIsConnected(false);
-    }
-  }, [userInfo, handleReceiveMessage, handleChannelReceive]);
-
   useEffect(() => {
-    if (userInfo && userInfo.id) {
-      connectSocket();
-    } else {
-      if (stompClient.current && stompClient.current.connected) {
-        stompClient.current.disconnect();
+    if (!userInfo || !userInfo.id) {
+      if (managerRef.current) {
+        managerRef.current.disconnect();
+        managerRef.current = null;
       }
-      setIsConnected(false);
+      setConnectionStatus("disconnected");
+      useAppStore.getState().setConnectionStatus("disconnected");
+      return;
     }
+
+    const manager = createReliableSocketManager({
+      createClient: () => {
+        const socket = new SockJS(SOCKET_URL);
+        const client = Stomp.over(socket);
+        client.debug = () => {};
+        return client;
+      },
+      onStatusChange: (nextStatus) => {
+        setConnectionStatus(nextStatus);
+        useAppStore.getState().setConnectionStatus(nextStatus);
+      },
+      onDirectMessage: (message) => {
+        if (!message) return;
+        const store = useAppStore.getState();
+        store.reconcileIncomingMessage(message);
+        store.addContactsInDmContacts(message);
+      },
+      onChannelMessage: (message) => {
+        if (!message) return;
+        const store = useAppStore.getState();
+        store.reconcileIncomingMessage(message);
+        store.addChannelInChannelList(message);
+      },
+      onAck: (ack) => {
+        if (!ack) return;
+        useAppStore.getState().acknowledgeMessage(ack);
+        if (ack.status === "FAILED" && ack.error) {
+          toast.error(ack.error);
+        }
+      },
+      onServerError: (err) => {
+        if (err?.message) {
+          toast.error(err.message);
+        }
+      },
+      onOptimisticMessage: (optMsg) => {
+        useAppStore.getState().enqueueOptimisticMessage(optMsg);
+      },
+      onMessageFailed: (clientMessageId, reason) => {
+        useAppStore.getState().markMessageFailed(clientMessageId, reason);
+      },
+      onReconnected: () => {
+        setReconnectEpoch((prev) => prev + 1);
+      },
+    });
+
+    managerRef.current = manager;
+    manager.connect();
+
+    const handleOnline = () => {
+      manager.connect();
+    };
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (stompClient.current) {
-        try {
-          stompClient.current.disconnect();
-        } catch (_ignored) {
-          // Ignore disconnect error on unmount
-        }
+      window.removeEventListener("online", handleOnline);
+      manager.disconnect();
+      if (managerRef.current === manager) {
+        managerRef.current = null;
       }
     };
-  }, [userInfo, connectSocket]);
+  }, [userInfo]);
 
-  const sendMessage = useCallback((message) => {
-    if (stompClient.current && stompClient.current.connected) {
-      const { selectedChatType } = useAppStore.getState();
+  const sendMessage = useCallback((message, explicitChatType) => {
+    const store = useAppStore.getState();
+    const currentUser = store.userInfo;
+    const chatType = explicitChatType || store.selectedChatType;
+    if (!currentUser?.id || !chatType || !message) return null;
 
-      if (selectedChatType === "channel") {
-        stompClient.current.send(
-          "/app/chat.sendChannelMessage",
-          {},
-          JSON.stringify(message)
-        );
-      } else {
-        stompClient.current.send(
-          "/app/chat.sendMessage",
-          {},
-          JSON.stringify(message)
-        );
-      }
-    } else {
-      console.warn("WebSocket is not connected. Attempting reconnect...");
-      connectSocket();
+    const clientMessageId = message.clientMessageId || generateClientMessageId();
+    const targetId =
+      chatType === "channel" ? message.channelId : message.recipient;
+    const conversationKey = getConversationKey(chatType, targetId);
+
+    const payload =
+      chatType === "channel"
+        ? {
+            channelId: message.channelId,
+            content: message.content,
+            messageType: message.messageType,
+            fileUrl: message.fileUrl,
+            clientMessageId,
+          }
+        : {
+            recipient: message.recipient,
+            content: message.content,
+            messageType: message.messageType,
+            fileUrl: message.fileUrl,
+            clientMessageId,
+          };
+
+    const optimisticMessage = {
+      id: null,
+      clientMessageId,
+      sender: currentUser.id,
+      senderName: currentUser.firstname || currentUser.firstName || currentUser.email,
+      color: currentUser.color,
+      image: currentUser.image,
+      recipient: chatType === "contact" ? message.recipient : null,
+      channelId: chatType === "channel" ? message.channelId : null,
+      content: message.content,
+      fileUrl: message.fileUrl,
+      messageType: message.messageType,
+      timestamps: new Date().toISOString(),
+      conversationKey,
+      chatType,
+      status: "pending",
+    };
+
+    if (!managerRef.current) {
+      store.enqueueOptimisticMessage(optimisticMessage);
+      store.markMessageFailed(
+        clientMessageId,
+        "Messaging connection unavailable. Tap retry once online."
+      );
+      return clientMessageId;
     }
-  }, [connectSocket]);
+
+    return managerRef.current.send({
+      chatType,
+      payload,
+      optimisticMessage,
+    });
+  }, []);
+
+  const retryMessage = useCallback((clientMessageId) => {
+    const store = useAppStore.getState();
+    const target = store.markMessagePendingForRetry(clientMessageId);
+    if (!target || !managerRef.current) return;
+
+    const chatType = target.channelId ? "channel" : "contact";
+    const payload =
+      chatType === "channel"
+        ? {
+            channelId: target.channelId,
+            content: target.content,
+            messageType: target.messageType,
+            fileUrl: target.fileUrl,
+            clientMessageId: target.clientMessageId,
+          }
+        : {
+            recipient: target.recipient,
+            content: target.content,
+            messageType: target.messageType,
+            fileUrl: target.fileUrl,
+            clientMessageId: target.clientMessageId,
+          };
+
+    managerRef.current.retry({ chatType, payload });
+  }, []);
+
+  const isConnected = connectionStatus === "connected";
 
   return (
-    <SocketContext.Provider value={{ sendMessage, isConnected }}>
+    <SocketContext.Provider
+      value={{
+        sendMessage,
+        retryMessage,
+        isConnected,
+        connectionStatus,
+        reconnectEpoch,
+      }}
+    >
       {children}
     </SocketContext.Provider>
   );

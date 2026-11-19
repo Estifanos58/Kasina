@@ -6,28 +6,36 @@ import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
-@Document(collection = "messages") // MongoDB Collection name
+@Document(collection = "messages")
 @CompoundIndexes({
-        @CompoundIndex(name = "dm_search_idx", def = "{'sender': 1, 'recipient': 1, 'timestamps': 1}"),
-        @CompoundIndex(name = "channel_msg_idx", def = "{'channelId': 1, 'timestamps': 1}")
+        @CompoundIndex(name = "dm_sender_recipient_ts_idx", def = "{'sender': 1, 'recipient': 1, 'timestamps': -1, '_id': -1}"),
+        @CompoundIndex(name = "dm_recipient_sender_ts_idx", def = "{'recipient': 1, 'sender': 1, 'timestamps': -1, '_id': -1}"),
+        @CompoundIndex(name = "channel_msg_ts_idx", def = "{'channelId': 1, 'timestamps': -1, '_id': -1}"),
+        @CompoundIndex(
+                name = "sender_client_msg_unique_idx",
+                def = "{'sender': 1, 'clientMessageId': 1}",
+                unique = true,
+                partialFilter = "{'clientMessageId': {'$type': 'string'}}"
+        )
 })
 public class Message {
 
     @Id
-    private String id; // MongoDB ObjectId
+    private String id;
 
-    private String sender;      // Plain String ID
-    private String recipient;   // Plain String ID
+    private String sender;
+    private String recipient;
 
-    private String messageType; // Type of message (text or file)
+    private String messageType;
 
-    private String content;     // Content for text messages
+    private String content;
 
-    private String fileUrl;     // URL for file messages
+    @Indexed(sparse = true)
+    private String fileUrl;
 
-    private LocalDateTime timestamps = LocalDateTime.now(); // Created timestamp
+    private Instant timestamps = Instant.now();
 
     private String channelId = null;
 
@@ -37,62 +45,28 @@ public class Message {
 
     private String image;
 
-    // Default constructor for MongoDB
+    private String clientMessageId;
+
     public Message() {}
 
-    // Custom constructor for manual creation
     public Message(String sender, String recipient, String messageType, String content, String fileUrl) {
         this.sender = sender;
         this.recipient = recipient;
-        this.messageType = messageType; // Directly assign messageType
+        this.messageType = messageType;
 
-        // Ensure content or fileUrl is set based on messageType
         if ("text".equals(messageType)) {
-            this.content = content;   // Accept the passed content
-            this.fileUrl = null;      // Ensure fileUrl is cleared
+            this.content = content;
+            this.fileUrl = null;
         } else if ("file".equals(messageType)) {
-            this.fileUrl = fileUrl;   // Accept the passed fileUrl
-            this.content = null;      // Ensure content is cleared
+            this.fileUrl = fileUrl;
+            this.content = null;
         } else {
             throw new IllegalArgumentException("Invalid message type");
         }
 
-        this.timestamps = LocalDateTime.now();
+        this.timestamps = Instant.now();
     }
 
-
-    // Setter for messageType
-    public void setMessageType(String messageType) {
-        this.messageType = messageType; // Directly set type
-    }
-
-    public void setChannelId(String channelId) {
-        this.channelId = channelId;
-    }
-
-    public String getChannelId() {
-        return channelId;
-    }
-
-    public String getSenderName() {
-        return senderName;
-    }
-
-    public void setSenderName(String senderName) {
-        this.senderName = senderName;
-    }
-
-    // Setter for content (no checks)
-    public void setContent(String content) {
-        this.content = content; // Allow setting content directly
-    }
-
-    // Setter for fileUrl (no checks)
-    public void setFileUrl(String fileUrl) {
-        this.fileUrl = fileUrl; // Allow setting fileUrl directly
-    }
-
-    // Getters and setters
     public String getId() {
         return id;
     }
@@ -121,6 +95,50 @@ public class Message {
         return messageType;
     }
 
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
+    }
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public String getFileUrl() {
+        return fileUrl;
+    }
+
+    public void setFileUrl(String fileUrl) {
+        this.fileUrl = fileUrl;
+    }
+
+    public Instant getTimestamps() {
+        return timestamps;
+    }
+
+    public void setTimestamps(Instant timestamps) {
+        this.timestamps = timestamps;
+    }
+
+    public String getChannelId() {
+        return channelId;
+    }
+
+    public void setChannelId(String channelId) {
+        this.channelId = channelId;
+    }
+
+    public String getSenderName() {
+        return senderName;
+    }
+
+    public void setSenderName(String senderName) {
+        this.senderName = senderName;
+    }
+
     public int getColor() {
         return color;
     }
@@ -137,22 +155,12 @@ public class Message {
         this.image = image;
     }
 
-    public String getContent() {
-        return content;
+    public String getClientMessageId() {
+        return clientMessageId;
     }
 
-
-    public String getFileUrl() {
-        return fileUrl;
-    }
-
-
-    public LocalDateTime getTimestamps() {
-        return timestamps;
-    }
-
-    public void setTimestamps(LocalDateTime timestamps) {
-        this.timestamps = timestamps;
+    public void setClientMessageId(String clientMessageId) {
+        this.clientMessageId = clientMessageId;
     }
 
     @Override
@@ -162,11 +170,9 @@ public class Message {
                 ", sender='" + sender + '\'' +
                 ", recipient='" + recipient + '\'' +
                 ", messageType='" + messageType + '\'' +
-                ", content='" + content + '\'' +
-                ", fileUrl='" + fileUrl + '\'' +
+                ", channelId='" + channelId + '\'' +
+                ", clientMessageId='" + clientMessageId + '\'' +
                 ", timestamps=" + timestamps +
                 '}';
     }
-
 }
-

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Search, Users } from "lucide-react";
 import {
   Tooltip,
@@ -14,22 +14,35 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import { SEARCH_CONTACTS_ROUTES } from "@/utils/constants";
 import { getDisplayName } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import UserAvatar from "@/components/user-avatar";
 
 const NewDm = () => {
-  const { setSelectedChatType, setSelectedChatData, setSelectedChatMessages } =
-    useAppStore();
+  const { selectConversation } = useAppStore();
   const [openNewContact, setOpenNewContact] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchedContacts, setSearchedContacts] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
 
-  const searchContacts = async (query) => {
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  const searchContacts = (query) => {
     setSearchTerm(query);
+    setSearchError(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
     const trimmed = query.trim();
     if (!trimmed) {
       setSearchedContacts([]);
@@ -37,41 +50,49 @@ const NewDm = () => {
       return;
     }
 
-    try {
-      setIsSearching(true);
-      const response = await apiClient.post(
-        SEARCH_CONTACTS_ROUTES,
-        { searchTerm: trimmed },
-        { withCredentials: true }
-      );
+    setIsSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const response = await apiClient.post(
+          SEARCH_CONTACTS_ROUTES,
+          { searchTerm: trimmed },
+          { signal: controller.signal }
+        );
 
-      if (response.status === 200 && Array.isArray(response.data)) {
-        setSearchedContacts(response.data);
-      } else {
+        if (!controller.signal.aborted) {
+          setSearchedContacts(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (error) {
+        if (controller.signal.aborted || error?.code === "ERR_CANCELED") return;
+        setSearchError(extractApiErrorMessage(error, "Unable to search contacts."));
         setSearchedContacts([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
       }
-    } catch (error) {
-      console.error("Error searching contacts:", error);
-      setSearchedContacts([]);
-    } finally {
-      setIsSearching(false);
-    }
+    }, 220);
   };
 
   const selectNewContact = (contact) => {
     setOpenNewContact(false);
-    setSelectedChatMessages([]);
-    setSelectedChatType("contact");
-    setSelectedChatData(contact);
+    selectConversation("contact", contact);
     setSearchTerm("");
     setSearchedContacts([]);
+    setSearchError(null);
   };
 
   const handleOpenChange = (open) => {
     setOpenNewContact(open);
     if (!open) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
       setSearchTerm("");
       setSearchedContacts([]);
+      setSearchError(null);
+      setIsSearching(false);
     }
   };
 
@@ -118,6 +139,10 @@ const NewDm = () => {
             {isSearching ? (
               <div className="h-[240px] flex items-center justify-center text-xs text-zinc-500">
                 Searching directory...
+              </div>
+            ) : searchError ? (
+              <div className="h-[240px] flex items-center justify-center text-xs text-red-400 text-center px-6">
+                {searchError}
               </div>
             ) : searchedContacts.length > 0 ? (
               <div className="space-y-1">

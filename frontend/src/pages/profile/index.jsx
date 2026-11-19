@@ -12,7 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useAppStore } from "@/store";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import {
   REMOVE_PROFILE_IMAGE_ROUTE,
   UPDATE_PROFILE_ROUTE,
@@ -81,9 +81,11 @@ const Profile = () => {
         navigate("/chat");
       }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message || "Failed to update profile. Try again.";
-      toast.error(msg);
+      const msg = extractApiErrorMessage(
+        err,
+        "Failed to update profile. Try again."
+      );
+      if (msg) toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -226,7 +228,7 @@ const Profile = () => {
                 className="hidden"
                 onChange={handleImageChange}
                 name="profile-image"
-                accept=".png, .jpg, .jpeg, .svg, .webp"
+                accept=".png, .jpg, .jpeg, .webp"
               />
 
               <div className="space-y-2.5">

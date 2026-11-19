@@ -25,9 +25,9 @@ USER appuser
 # Copy JAR from build stage
 COPY --from=builder --chown=appuser:appgroup /app/target/ChatAPP-0.0.1-SNAPSHOT.jar app.jar
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
-  CMD wget -qO- http://localhost:8080/api/health || exit 1
+# Readiness health check (verifies MongoDB connectivity and storage availability)
+HEALTHCHECK --interval=20s --timeout=10s --start-period=60s --retries=5 \
+  CMD wget -qO- http://127.0.0.1:8080/api/health/ready || exit 1
 
 EXPOSE 8080
 

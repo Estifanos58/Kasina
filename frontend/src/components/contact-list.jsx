@@ -4,24 +4,12 @@ import { cn, formatSidebarTime, getDisplayName } from "@/lib/utils";
 import UserAvatar from "@/components/user-avatar";
 
 function ContactList({ contacts, isChannel = false }) {
-  const {
-    selectedChatType,
-    selectedChatData,
-    setSelectedChatData,
-    setSelectedChatType,
-    setSelectedChatMessages,
-  } = useAppStore();
+  const { selectedChatType, selectedChatData, selectConversation } =
+    useAppStore();
 
   const handleClick = (contact) => {
     const nextType = isChannel ? "channel" : "contact";
-    const isSameChat =
-      selectedChatType === nextType && selectedChatData?.id === contact?.id;
-
-    if (!isSameChat) {
-      setSelectedChatMessages([]);
-    }
-    setSelectedChatType(nextType);
-    setSelectedChatData(contact);
+    selectConversation(nextType, contact);
   };
 
   if (!contacts || contacts.length === 0) {
@@ -57,14 +45,14 @@ function ContactList({ contacts, isChannel = false }) {
             type="button"
             key={contact?.id || index}
             onClick={() => handleClick(contact)}
+            aria-current={isActive ? "page" : undefined}
             className={cn(
-              "group relative w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors",
+              "group relative w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60",
               isActive
                 ? "bg-white/[0.08] text-zinc-50"
                 : "text-zinc-300 hover:bg-white/[0.04] hover:text-zinc-100"
             )}
           >
-            {/* Active subtle emerald bar */}
             {isActive && (
               <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-emerald-500" />
             )}

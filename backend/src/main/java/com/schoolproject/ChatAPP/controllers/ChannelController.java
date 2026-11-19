@@ -10,7 +10,9 @@ import com.schoolproject.ChatAPP.repository.UserRepository;
 import com.schoolproject.ChatAPP.requests.ChannelRequest;
 import com.schoolproject.ChatAPP.responses.ChannelResponseDTO;
 import com.schoolproject.ChatAPP.responses.ErrorResponse;
+import com.schoolproject.ChatAPP.responses.MessagePageResponse;
 import com.schoolproject.ChatAPP.responses.MessageResponseDTO;
+import com.schoolproject.ChatAPP.util.MessageCursor;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,9 +23,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.time.Instant;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -32,6 +33,8 @@ import java.util.stream.Collectors;
 public class ChannelController {
 
     private static final Logger logger = LoggerFactory.getLogger(ChannelController.class);
+    private static final int DEFAULT_PAGE_LIMIT = 50;
+    private static final int MAX_PAGE_LIMIT = 100;
 
     @Autowired
     private ChannelRepository channelRepository;
@@ -42,7 +45,6 @@ public class ChannelController {
     @Autowired
     private MessageRepository messageRepository;
 
-    // Create a new channel
     @PostMapping("/create-channel")
     public ResponseEntity<?> createChannel(
             @AuthenticationPrincipal UserPrincipal principal,
@@ -58,13 +60,15 @@ public class ChannelController {
             return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Admin user not found"));
         }
 
-        List<User> validMembers = userRepository.findAllById(request.getMembers());
-        if (validMembers.size() != request.getMembers().size()) {
+        // Deduplicate member IDs while preserving order
+        List<String> uniqueMemberIds = new ArrayList<>(new LinkedHashSet<>(request.getMembers()));
+        List<User> validMembers = userRepository.findAllById(uniqueMemberIds);
+        if (validMembers.size() != uniqueMemberIds.size()) {
             return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Some members are not valid users."));
         }
 
         // Ensure admin is also in member list if not already
-        if (validMembers.stream().noneMatch(m -> m.getId().equals(userId))) {
+        if (validMembers.stream().noneMatch(m -> userId.equals(m.getId()))) {
             validMembers = new ArrayList<>(validMembers);
             validMembers.add(admin.get());
         }
@@ -80,7 +84,6 @@ public class ChannelController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ChannelResponseDTO.fromEntity(savedChannel));
     }
 
-    // Get channels for authenticated user
     @GetMapping("/user-channels")
     public ResponseEntity<?> getUserChannels(@AuthenticationPrincipal UserPrincipal principal) {
         if (principal == null || principal.getUserId() == null) {
@@ -90,23 +93,33 @@ public class ChannelController {
 
         String userId = principal.getUserId();
 
-        List<ChannelResponseDTO> channels = channelRepository.findAll()
+        // Query directly via indexed MongoDB fields rather than loading the entire channels collection
+        List<Channel> userChannels = channelRepository.findByAdmin_IdOrMembers_IdOrderByUpdatedAtDesc(userId, userId);
+
+        // Deduplicate by channel ID in case Mongo returns duplicate references
+        Map<String, Channel> uniqueChannels = new LinkedHashMap<>();
+        for (Channel ch : userChannels) {
+            if (ch != null && ch.getId() != null) {
+                uniqueChannels.putIfAbsent(ch.getId(), ch);
+            }
+        }
+
+        List<ChannelResponseDTO> channels = uniqueChannels.values()
                 .stream()
-                .filter(channel ->
-                        (channel.getAdmin() != null && channel.getAdmin().getId().equals(userId)) ||
-                        (channel.getMembers() != null && channel.getMembers().stream().anyMatch(m -> m != null && m.getId().equals(userId)))
-                )
                 .map(ChannelResponseDTO::fromEntity)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(channels);
     }
 
-    // Get messages for a specific channel
     @GetMapping("/get-channel-messages/{channelId}")
     public ResponseEntity<?> getChannelMessages(
             @AuthenticationPrincipal UserPrincipal principal,
-            @PathVariable String channelId) {
+            @PathVariable String channelId,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "limit", required = false) Integer requestedLimit,
+            @RequestParam(value = "paginated", required = false) Boolean paginated) {
+
         if (principal == null || principal.getUserId() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
@@ -121,9 +134,8 @@ public class ChannelController {
 
         Channel channel = channelOpt.get();
 
-        // Verify channel membership
-        boolean isMember = (channel.getAdmin() != null && channel.getAdmin().getId().equals(userId)) ||
-                (channel.getMembers() != null && channel.getMembers().stream().anyMatch(m -> m != null && m.getId().equals(userId)));
+        boolean isMember = (channel.getAdmin() != null && userId.equals(channel.getAdmin().getId()))
+                || (channel.getMembers() != null && channel.getMembers().stream().anyMatch(m -> m != null && userId.equals(m.getId())));
 
         if (!isMember) {
             logger.warn("User {} attempted unauthorized access to channel {}", userId, channelId);
@@ -131,12 +143,45 @@ public class ChannelController {
                     .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "You are not a member of this channel"));
         }
 
-        // Query messages directly from MessageRepository ordered by timestamp ascending
-        List<MessageResponseDTO> messages = messageRepository.findByChannelIdOrderByTimestampsAsc(channelId)
-                .stream()
+        boolean returnPaginatedEnvelope = Boolean.TRUE.equals(paginated)
+                || (cursor != null && !cursor.isBlank())
+                || requestedLimit != null;
+
+        int limit = clampLimit(requestedLimit);
+        Instant beforeTimestamp = null;
+        String beforeId = null;
+
+        if (cursor != null && !cursor.isBlank()) {
+            MessageCursor parsed = MessageCursor.decode(cursor);
+            beforeTimestamp = parsed.getTimestamp();
+            beforeId = parsed.getId();
+        }
+
+        List<Message> fetched = messageRepository.findChannelMessagesPage(channelId, beforeTimestamp, beforeId, limit + 1);
+        boolean hasMore = fetched.size() > limit;
+        List<Message> pageEntities = hasMore ? new ArrayList<>(fetched.subList(0, limit)) : new ArrayList<>(fetched);
+        Collections.reverse(pageEntities);
+
+        List<MessageResponseDTO> messages = pageEntities.stream()
                 .map(MessageResponseDTO::fromEntity)
                 .collect(Collectors.toList());
 
+        if (returnPaginatedEnvelope) {
+            String nextCursor = null;
+            if (hasMore && !pageEntities.isEmpty()) {
+                Message oldest = pageEntities.get(0);
+                nextCursor = MessageCursor.encode(oldest.getTimestamps(), oldest.getId());
+            }
+            return ResponseEntity.ok(new MessagePageResponse(messages, nextCursor, hasMore));
+        }
+
         return ResponseEntity.ok(messages);
+    }
+
+    private int clampLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_PAGE_LIMIT;
+        }
+        return Math.max(1, Math.min(limit, MAX_PAGE_LIMIT));
     }
 }

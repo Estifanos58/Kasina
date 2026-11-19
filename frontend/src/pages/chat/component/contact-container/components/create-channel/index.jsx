@@ -14,15 +14,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import { CREATE_CHANNEL_ROUTE, GET_ALL_CONTACTS } from "@/utils/constants";
 import { useAppStore } from "@/store";
 import { getDisplayName } from "@/lib/utils";
 import MultipleSelector from "@/components/ui/multipleselect";
 
 const CreateChannel = () => {
-  const { addChannel, setSelectedChatType, setSelectedChatData, setSelectedChatMessages } =
-    useAppStore();
+  const { addChannel, selectConversation } = useAppStore();
   const [newChannelModal, setNewChannelModal] = useState(false);
   const [allContacts, setAllContacts] = useState([]);
   const [selectedContacts, setSelectedContacts] = useState([]);
@@ -90,18 +89,15 @@ const CreateChannel = () => {
       );
       if (response.status === 201 && response.data) {
         addChannel(response.data);
-        setSelectedChatMessages([]);
-        setSelectedChatType("channel");
-        setSelectedChatData(response.data);
+        selectConversation("channel", response.data);
         setChannelName("");
         setSelectedContacts([]);
         setNewChannelModal(false);
         toast.success(`Channel #${trimmedName} created.`);
       }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message || "Failed to create channel.";
-      toast.error(msg);
+      const msg = extractApiErrorMessage(err, "Failed to create channel.");
+      if (msg) toast.error(msg);
     } finally {
       setIsCreating(false);
     }

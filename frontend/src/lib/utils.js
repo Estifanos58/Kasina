@@ -1,7 +1,6 @@
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import moment from "moment";
-import animationData from "@/assets/lottie-json";
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -81,10 +80,4 @@ export const formatDateDivider = (timestamp) => {
   if (m.isSame(now.clone().subtract(1, "day"), "day")) return "Yesterday";
   if (m.isSame(now, "year")) return m.format("MMMM D");
   return m.format("MMMM D, YYYY");
-};
-
-export const animationDefaultOptions = {
-  loop: true,
-  autoplay: true,
-  animationData,
 };

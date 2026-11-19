@@ -1,24 +1,23 @@
 package com.schoolproject.ChatAPP.controllers;
 
 import com.schoolproject.ChatAPP.config.UserPrincipal;
-import com.schoolproject.ChatAPP.model.Message;
 import com.schoolproject.ChatAPP.model.User;
+import com.schoolproject.ChatAPP.repository.DmContactSummary;
 import com.schoolproject.ChatAPP.repository.MessageRepository;
 import com.schoolproject.ChatAPP.repository.UserRepository;
 import com.schoolproject.ChatAPP.requests.SearchRequest;
 import com.schoolproject.ChatAPP.responses.ContactResponseDTO;
 import com.schoolproject.ChatAPP.responses.ErrorResponse;
 import com.schoolproject.ChatAPP.responses.UserDTO;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -28,7 +27,8 @@ import java.util.stream.Collectors;
 @Validated
 public class ContactController {
 
-    private static final Logger logger = LoggerFactory.getLogger(ContactController.class);
+    private static final int DEFAULT_CONTACT_LIMIT = 50;
+    private static final int MAX_CONTACT_LIMIT = 100;
 
     @Autowired
     private UserRepository userRepository;
@@ -36,29 +36,29 @@ public class ContactController {
     @Autowired
     private MessageRepository messageRepository;
 
-    // Search contacts
     @PostMapping("/search")
     public ResponseEntity<?> searchContacts(
             @AuthenticationPrincipal UserPrincipal principal,
-            @RequestBody SearchRequest request) {
+            @RequestBody SearchRequest request,
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
         if (principal == null || principal.getUserId() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
 
         String userId = principal.getUserId();
-        String searchTerm = request.getSearchTerm();
+        String searchTerm = request != null ? request.getSearchTerm() : null;
         if (searchTerm == null || searchTerm.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Search term is required."));
         }
 
-        // Sanitize search term to prevent regex injection
         String sanitizedSearchTerm = Pattern.quote(searchTerm.trim());
         Pattern regex = Pattern.compile(sanitizedSearchTerm, Pattern.CASE_INSENSITIVE);
+        int boundedLimit = clampLimit(limit);
 
-        // Fetch matching users excluding current user
         List<User> contacts = userRepository.findByIdNotAndFirstnameRegexIgnoreCaseOrIdNotAndLastnameRegexIgnoreCaseOrIdNotAndEmailRegexIgnoreCase(
-                userId, regex.pattern(), userId, regex.pattern(), userId, regex.pattern()
+                userId, regex.pattern(), userId, regex.pattern(), userId, regex.pattern(),
+                PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.ASC, "firstname", "email"))
         );
 
         List<UserDTO> dtoList = contacts.stream()
@@ -68,16 +68,24 @@ public class ContactController {
         return ResponseEntity.ok(dtoList);
     }
 
-    // Get all contacts excluding current user
     @GetMapping("/get-all-contacts")
-    public ResponseEntity<?> getAllContacts(@AuthenticationPrincipal UserPrincipal principal) {
+    public ResponseEntity<?> getAllContacts(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
         if (principal == null || principal.getUserId() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
 
         String userId = principal.getUserId();
-        List<UserDTO> contacts = userRepository.findByIdNot(userId)
+        int safePage = Math.max(0, page);
+        int boundedLimit = clampLimit(limit);
+
+        List<UserDTO> contacts = userRepository.findByIdNot(
+                        userId,
+                        PageRequest.of(safePage, boundedLimit, Sort.by(Sort.Direction.ASC, "firstname", "email"))
+                )
                 .stream()
                 .map(UserDTO::fromEntity)
                 .collect(Collectors.toList());
@@ -85,56 +93,42 @@ public class ContactController {
         return ResponseEntity.ok(contacts);
     }
 
-    // Get contacts for DM list with correct timestamp ordering
     @GetMapping("/dm-list")
-    public ResponseEntity<?> getContactsForDMList(@AuthenticationPrincipal UserPrincipal principal) {
+    public ResponseEntity<?> getContactsForDMList(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
         if (principal == null || principal.getUserId() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
         }
 
         String userId = principal.getUserId();
+        int boundedLimit = clampLimit(limit);
 
-        // Fetch all direct messages involving the user ordered by timestamp descending
-        List<Message> allMessages = messageRepository.findBySenderOrRecipientOrderByTimestampsDesc(userId, userId);
-
-        // Group by contactId and find the latest message per contact
-        Map<String, Message> lastMessagesMap = new LinkedHashMap<>();
-        for (Message message : allMessages) {
-            // Ignore channel messages if any were tagged with recipient
-            if (message.getChannelId() != null) {
-                continue;
-            }
-            String contactId = message.getSender().equals(userId) ? message.getRecipient() : message.getSender();
-            if (contactId == null || contactId.equals(userId)) {
-                continue;
-            }
-            if (!lastMessagesMap.containsKey(contactId)) {
-                lastMessagesMap.put(contactId, message);
-            } else {
-                Message existing = lastMessagesMap.get(contactId);
-                if (existing.getTimestamps() == null || (message.getTimestamps() != null && message.getTimestamps().isAfter(existing.getTimestamps()))) {
-                    lastMessagesMap.put(contactId, message);
-                }
-            }
-        }
-
-        if (lastMessagesMap.isEmpty()) {
+        // Use MongoDB aggregation pipeline to retrieve only the latest message per contact
+        List<DmContactSummary> summaries = messageRepository.findRecentDmContacts(userId, boundedLimit);
+        if (summaries == null || summaries.isEmpty()) {
             return ResponseEntity.ok(Collections.emptyList());
         }
 
-        List<String> contactIds = new ArrayList<>(lastMessagesMap.keySet());
+        List<String> contactIds = summaries.stream()
+                .map(DmContactSummary::getContactId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (contactIds.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
         Map<String, User> userMap = userRepository.findAllById(contactIds)
                 .stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
+                .collect(Collectors.toMap(User::getId, u -> u, (first, second) -> first));
 
-        // Combine contact info with last message time and sort by FULL LocalDateTime descending
-        List<ContactResponseDTO> response = contactIds.stream()
-                .filter(userMap::containsKey)
-                .map(contactId -> {
-                    User contact = userMap.get(contactId);
-                    Message lastMessage = lastMessagesMap.get(contactId);
-                    LocalDateTime lastMsgTime = lastMessage != null ? lastMessage.getTimestamps() : null;
+        List<ContactResponseDTO> response = summaries.stream()
+                .filter(s -> s.getContactId() != null && userMap.containsKey(s.getContactId()))
+                .map(s -> {
+                    User contact = userMap.get(s.getContactId());
                     return new ContactResponseDTO(
                             contact.getId(),
                             contact.getEmail(),
@@ -142,7 +136,7 @@ public class ContactController {
                             contact.getLastname(),
                             contact.getImage(),
                             contact.getColor(),
-                            lastMsgTime
+                            s.getLastMessageTime()
                     );
                 })
                 .sorted((a, b) -> {
@@ -156,12 +150,18 @@ public class ContactController {
         return ResponseEntity.ok(response);
     }
 
-    // Find a specific user by ID
     @PostMapping("/find-user")
-    public ResponseEntity<?> getUser(@RequestBody FindUserRequest request) {
-        String targetId = request.getUserId();
+    public ResponseEntity<?> getUser(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody FindUserRequest request) {
+        if (principal == null || principal.getUserId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"));
+        }
+
+        String targetId = request != null ? request.getUserId() : null;
         if (targetId == null || targetId.isEmpty()) {
-            targetId = request.getId();
+            targetId = request != null ? request.getId() : null;
         }
 
         if (targetId == null || targetId.isEmpty()) {
@@ -175,6 +175,13 @@ public class ContactController {
         }
 
         return ResponseEntity.ok(UserDTO.fromEntity(user.get()));
+    }
+
+    private int clampLimit(int limit) {
+        if (limit <= 0) {
+            return DEFAULT_CONTACT_LIMIT;
+        }
+        return Math.min(limit, MAX_CONTACT_LIMIT);
     }
 
     public static class FindUserRequest {

@@ -10,7 +10,7 @@ import {
   Paperclip,
   Check,
 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import { LOGIN_ROUTE, SIGNUP_ROUTES } from "@/utils/constants";
 import { useAppStore } from "@/store";
 import KasinaLogo from "@/components/kasina-logo";
@@ -87,10 +87,11 @@ const Auth = () => {
         toast.error("Invalid credentials.");
       }
     } catch (error) {
-      const msg =
-        error?.response?.data?.message ||
-        "Invalid credentials or server unavailable.";
-      toast.error(msg);
+      const msg = extractApiErrorMessage(
+        error,
+        "Invalid credentials or server unavailable."
+      );
+      if (msg) toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -114,10 +115,11 @@ const Auth = () => {
         toast.error("Unable to create account.");
       }
     } catch (error) {
-      const msg =
-        error?.response?.data?.message ||
-        "Could not create account. Please try again.";
-      toast.error(msg);
+      const msg = extractApiErrorMessage(
+        error,
+        "Could not create account. Please try again."
+      );
+      if (msg) toast.error(msg);
     } finally {
       setLoading(false);
     }

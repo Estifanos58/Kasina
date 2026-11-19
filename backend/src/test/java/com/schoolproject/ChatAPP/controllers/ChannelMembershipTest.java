@@ -25,13 +25,12 @@ import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
-import java.time.LocalDateTime;
-import java.util.Collections;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -61,7 +60,6 @@ class ChannelMembershipTest {
     void setUp() {
         currentPrincipal = new UserPrincipal("user-1", "user1@example.com");
 
-        // Custom argument resolver to inject currentPrincipal into @AuthenticationPrincipal
         HandlerMethodArgumentResolver authPrincipalResolver = new HandlerMethodArgumentResolver() {
             @Override
             public boolean supportsParameter(MethodParameter parameter) {
@@ -97,16 +95,77 @@ class ChannelMembershipTest {
         Message msg = new Message("user-1", null, "text", "Hello channel!", null);
         msg.setId("msg-1");
         msg.setChannelId("chan-100");
-        msg.setTimestamps(LocalDateTime.now());
+        msg.setTimestamps(Instant.parse("2026-11-18T10:00:00Z"));
 
         when(channelRepository.findById("chan-100")).thenReturn(Optional.of(channel));
-        when(messageRepository.findByChannelIdOrderByTimestampsAsc("chan-100")).thenReturn(List.of(msg));
+        when(messageRepository.findChannelMessagesPage(eq("chan-100"), isNull(), isNull(), eq(51)))
+                .thenReturn(List.of(msg));
 
         mockMvc.perform(get("/api/channels/get-channel-messages/chan-100"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("msg-1"))
                 .andExpect(jsonPath("$[0].content").value("Hello channel!"))
                 .andExpect(jsonPath("$[0].channelId").value("chan-100"));
+    }
+
+    @Test
+    void testGetChannelMessagesCursorPagination() throws Exception {
+        User member = new User("user-1");
+        Channel channel = new Channel();
+        channel.setId("chan-100");
+        channel.setName("General");
+        channel.setAdmin(member);
+        channel.setMembers(List.of(member));
+
+        // Returned in descending order from DB (limit + 1 = 3)
+        Message newest = new Message("user-1", null, "text", "Third", null);
+        newest.setId("msg-3");
+        newest.setChannelId("chan-100");
+        newest.setTimestamps(Instant.parse("2026-11-18T10:03:00Z"));
+
+        Message middle = new Message("user-1", null, "text", "Second", null);
+        middle.setId("msg-2");
+        middle.setChannelId("chan-100");
+        middle.setTimestamps(Instant.parse("2026-11-18T10:02:00Z"));
+
+        Message oldest = new Message("user-1", null, "text", "First", null);
+        oldest.setId("msg-1");
+        oldest.setChannelId("chan-100");
+        oldest.setTimestamps(Instant.parse("2026-11-18T10:01:00Z"));
+
+        when(channelRepository.findById("chan-100")).thenReturn(Optional.of(channel));
+        when(messageRepository.findChannelMessagesPage(eq("chan-100"), isNull(), isNull(), eq(3)))
+                .thenReturn(List.of(newest, middle, oldest));
+
+        mockMvc.perform(get("/api/channels/get-channel-messages/chan-100")
+                        .param("limit", "2")
+                        .param("paginated", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasMore").value(true))
+                .andExpect(jsonPath("$.nextCursor").isNotEmpty())
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[0].id").value("msg-2"))
+                .andExpect(jsonPath("$.messages[1].id").value("msg-3"));
+    }
+
+    @Test
+    void testGetUserChannelsUsesIndexedRepositoryQueryNotFindAll() throws Exception {
+        User user1 = new User("user-1");
+        Channel ch = new Channel();
+        ch.setId("chan-1");
+        ch.setName("Engineering");
+        ch.setAdmin(user1);
+        ch.setMembers(List.of(user1));
+
+        when(channelRepository.findByAdmin_IdOrMembers_IdOrderByUpdatedAtDesc("user-1", "user-1"))
+                .thenReturn(List.of(ch));
+
+        mockMvc.perform(get("/api/channels/user-channels"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("chan-1"))
+                .andExpect(jsonPath("$[0].name").value("Engineering"));
+
+        verify(channelRepository, never()).findAll();
     }
 
     @Test
@@ -123,7 +182,6 @@ class ChannelMembershipTest {
         channel.setAdmin(admin);
         channel.setMembers(List.of(otherMember));
 
-        // currentPrincipal is "user-1", who is NOT a member of chan-private
         when(channelRepository.findById("chan-private")).thenReturn(Optional.of(channel));
 
         mockMvc.perform(get("/api/channels/get-channel-messages/chan-private"))

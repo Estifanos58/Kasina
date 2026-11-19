@@ -1,7 +1,7 @@
 package com.schoolproject.ChatAPP.responses;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 public class ContactResponseDTO {
     private String id;
@@ -10,11 +10,11 @@ public class ContactResponseDTO {
     private String lastname;
     private String image;
     private int color;
-    private LocalDateTime lastMessageTime;
+    private Instant lastMessageTime;
 
     public ContactResponseDTO() {}
 
-    public ContactResponseDTO(String id, String email, String firstname, String lastname, String image, int color, LocalDateTime lastMessageTime) {
+    public ContactResponseDTO(String id, String email, String firstname, String lastname, String image, int color, Instant lastMessageTime) {
         this.id = id;
         this.email = email;
         this.firstname = firstname;
@@ -82,11 +82,11 @@ public class ContactResponseDTO {
         this.color = color;
     }
 
-    public LocalDateTime getLastMessageTime() {
+    public Instant getLastMessageTime() {
         return lastMessageTime;
     }
 
-    public void setLastMessageTime(LocalDateTime lastMessageTime) {
+    public void setLastMessageTime(Instant lastMessageTime) {
         this.lastMessageTime = lastMessageTime;
     }
 }
